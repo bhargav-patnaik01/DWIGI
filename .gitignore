@@ -1,0 +1,37 @@
+# EIS is a private, file-native repository. Almost everything here is
+# deliberately tracked: core context, the decision journal, and dossiers ARE
+# the product, and their history is the learning mechanism (ADR-002).
+#
+# Only machine noise belongs here. If you are about to ignore a .md file,
+# you are probably making a mistake.
+
+# OS artifacts
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# Claude Code machine-local state. Note that .claude/ itself is NOT ignored:
+# shared commands and settings are part of the system.
+.claude/settings.local.json
+
+# Business Memory — your company's private knowledge (ADR-010).
+#
+# Ignored by default because this repository is open source: the likeliest
+# accident is pushing a fork and publishing your cash position and runway.
+# That is irreversible. The update workflow preserves prior values as in-file
+# history lines, so the evolution of your understanding survives regardless.
+#
+# To version it anyway (recommended if your remote is private and yours
+# alone), delete the next line.
+core/business_memory.md
+
+# Scratch work that is not a decision record
+scratch/
+*.tmp

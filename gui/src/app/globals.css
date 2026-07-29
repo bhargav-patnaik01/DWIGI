@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design language: quiet, near-monochrome, one restrained accent.
+ *
+ * The palette is intentionally desaturated. An advisory tool is read for long
+ * stretches and its content is dense prose — colour is used to establish
+ * hierarchy and to mark state, never for decoration. There are no gradients
+ * and no translucency effects.
+ *
+ * Dark is the default and the design's primary target; light is a considered
+ * equivalent rather than an inversion.
+ */
+
+@layer base {
+  :root,
+  [data-theme='dark'] {
+    --canvas: 240 6% 5%;
+    --surface: 240 5% 8%;
+    --elevated: 240 5% 11%;
+    --line: 240 4% 15%;
+
+    --ink: 240 6% 93%;
+    --muted: 240 4% 58%;
+    --faint: 240 4% 38%;
+
+    /* Warm amber, used sparingly: active nav, focus ring, live indicators. */
+    --accent: 36 90% 62%;
+    --accent-ink: 36 30% 8%;
+
+    --positive: 152 45% 52%;
+    --caution: 38 85% 60%;
+    --critical: 4 65% 58%;
+
+    --font-sans: ui-sans-serif, -apple-system, 'Segoe UI', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Consolas', monospace;
+  }
+
+  [data-theme='light'] {
+    --canvas: 40 20% 98%;
+    --surface: 40 14% 96%;
+    --elevated: 0 0% 100%;
+    --line: 40 8% 88%;
+
+    --ink: 240 8% 12%;
+    --muted: 240 5% 42%;
+    --faint: 240 5% 60%;
+
+    --accent: 30 78% 44%;
+    --accent-ink: 40 60% 98%;
+
+    --positive: 152 42% 34%;
+    --caution: 32 75% 40%;
+    --critical: 4 60% 46%;
+  }
+
+  * {
+    @apply border-line;
+  }
+
+  html,
+  body {
+    @apply h-full;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-sans antialiased;
+    /* Desktop chrome should not feel like a web page. */
+    overscroll-behavior: none;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Numbers in metrics must not jitter as they change. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  /* Single focus treatment for the whole app. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent/60 ring-offset-2 ring-offset-canvas;
+  }
+
+  /* Slim, self-effacing scrollbars. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full;
+    background: hsl(var(--line));
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--faint) / 0.5);
+  }
+
+  /* Native drag region for the frameless macOS title bar. */
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+
+  /* Respect the OS. Every animation in this app is non-essential. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

@@ -1,0 +1,109 @@
+{
+  "name": "eis-cockpit",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "D.W.I.G.I — local-first desktop cockpit for the Executive Intelligence System. Presentation layer only — performs no reasoning.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bhargav-patnaik01/DWIGI"
+  },
+  "main": "dist-electron/electron/main.js",
+  "scripts": {
+    "dev:web": "next dev",
+    "dev": "concurrently -k -n next,electron -c cyan,magenta \"next dev\" \"npm:dev:electron\"",
+    "dev:electron": "wait-on tcp:3000 && npm run prepare:icon && npm run build:electron && cross-env EIS_DEV=1 electron .",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "build:next": "next build",
+    "prepare:icon": "node scripts/prepare-icon.mjs",
+    "build": "npm run prepare:icon && npm run build:next && npm run build:electron",
+    "start": "cross-env NODE_ENV=production electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "lint": "next lint",
+    "sandbox": "node scripts/make-sandbox.mjs",
+    "sandbox:reset": "node scripts/make-sandbox.mjs --reset",
+    "sandbox:empty": "node scripts/make-sandbox.mjs --reset --empty",
+    "validate:bridge": "npm run build:electron && node scripts/validate-bridge.mjs",
+    "validate:modes": "npm run build:electron && node scripts/validate-modes.mjs",
+    "test": "npm run build:electron && node --test tests/*.test.mjs",
+    "screenshots": "node scripts/screenshots.mjs",
+    "package": "npm run build && electron-builder --dir",
+    "package:installer": "npm run build && electron-builder"
+  },
+  "//dependencies": "Deliberately empty. The renderer is a STATIC EXPORT: React, Next, and every UI library are compiled into out/ at build time, and the Electron main process imports none of them — only electron itself and Node builtins. Listing them as runtime dependencies made electron-builder bundle ~170MB of node_modules into app.asar that nothing could ever require. If a genuine runtime dependency of the MAIN PROCESS is ever added, it belongs here and nowhere else.",
+  "dependencies": {},
+  "devDependencies": {
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.469.0",
+    "next": "^15.1.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^2.6.0",
+    "zustand": "^5.0.3",
+    "@types/node": "^22.10.7",
+    "@types/react": "^19.0.7",
+    "@types/react-dom": "^19.0.3",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^34.0.0",
+    "eslint": "^9.18.0",
+    "eslint-config-next": "^15.1.6",
+    "postcss": "^8.5.1",
+    "tailwindcss": "^3.4.17",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "^5.7.3",
+    "wait-on": "^8.0.2",
+    "electron-builder": "^25.1.8"
+  },
+  "productName": "D.W.I.G.I",
+  "author": {
+    "name": "Bhargav Patnaik"
+  },
+  "build": {
+    "appId": "com.dwigi.app",
+    "productName": "D.W.I.G.I",
+    "files": [
+      "dist-electron/**/*",
+      "out/**/*",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "dist-electron/electron/main.js"
+    },
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "build/icon.png",
+      "category": "Office"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    },
+    "publish": null
+  }
+}

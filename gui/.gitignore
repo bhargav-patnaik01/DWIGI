@@ -1,0 +1,45 @@
+# Build output
+/.next/
+/out/
+/dist-electron/
+/dist/
+/build/
+
+# Dependencies
+/node_modules/
+.pnp
+.pnp.js
+
+# Environment
+.env*.local
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+npm-debug.log*
+yarn-error.log*
+
+# Packaging output
+/release/
+
+# Screenshot harness output — regenerate with `npm run screenshots`
+/screenshots/
+
+# Derived icon artifacts. `gui/icon.png` is the tracked source of truth; these
+# are rebuilt from it by `npm run prepare:icon`. Committing one would create a
+# second authority that silently outlives a change to the real icon.
+/public/icon.png
+
+# Design working files — logo masters, motion studies, anything kept for
+# reference rather than consumed by the build. Preserved locally on purpose;
+# `gui/icon.png` is the only image the application actually reads, so nothing
+# here needs to travel with the source.
+/design/

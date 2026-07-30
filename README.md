@@ -140,6 +140,16 @@ You only need to do this once, and again later if you download an updated versio
 
 ## Step 7 — Start it
 
+You must still be inside the `gui` folder for this. If you closed your terminal since Step 4, or you are not sure, run this first:
+
+```bash
+cd gui
+```
+
+*(If that says "no such file or directory", you are already inside `gui`. Carry on.)*
+
+Now start the app:
+
 ```bash
 npm start
 ```
@@ -147,6 +157,17 @@ npm start
 A window should open with a dark screen, the D.W.I.G.I logo, and a **Get Started** button.
 
 **This is the command you will use every time from now on.** To open the app in future: open a terminal, `cd` into the `DWIGI/gui` folder, and type `npm start`.
+
+> **If no window appears**, the terminal will usually say why. Two common causes:
+>
+> - **A message about Electron failing to install.** The app's window framework downloads separately from everything else, and it can fail on a slow connection or be removed by antivirus — while every other step still succeeds. Fix it by deleting the downloaded code and fetching it again:
+>   ```bash
+>   npm install
+>   ```
+>   If that alone does not fix it, delete the `gui/node_modules` folder entirely and run `npm install` once more.
+> - **Your security software blocked it.** Windows SmartScreen or a company Application Control policy can block the window framework. Do not turn your protections off. Use the engine directly in a terminal instead — see *Using the engine without the desktop app* below; it gives you the same council without a desktop window.
+>
+> If the terminal prints something else, copy that text into a GitHub issue.
 
 ---
 
@@ -205,6 +226,10 @@ It decides for itself how much thought a question deserves. A small question get
 | `node: command not found` | Node.js is not installed, or you did not open a fresh terminal after installing. Redo Step 1. |
 | `npm: command not found` | Same cause — npm comes with Node.js. Redo Step 1. |
 | `'cd' ... no such file or directory` | You are not where you think you are. Type `ls` to see where you are, then `cd` into the right folder. |
+| `Could not read package.json` | You are one folder too high up. Type `cd gui` and try again. |
+| `Missing script: "start"` | Same cause as above — you are in the outer folder, not `gui`. |
+| **`npm run build` works but `npm start` does nothing** | These need different things: `build` compiles code, `start` needs the window framework that downloads separately during `npm install`. Run `npm install` again; if that does not help, delete `gui/node_modules` and run it once more. |
+| `Electron failed to install correctly` | Exactly the case above. Delete `gui/node_modules`, then `npm install`. |
 | **"Runtime not found"** in the app | Claude Code is not installed or not signed in. Redo Step 2 and check `claude --version` works. |
 | **"No repository selected"** in the app | You skipped Step 8. Go to Settings → Repository location. |
 | The welcome screen keeps coming back | Onboarding has not finished yet. Click Get Started and complete the conversation. |

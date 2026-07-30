@@ -10,6 +10,208 @@ The system's purpose is **decision quality**, not answer production. It records 
 
 ---
 
+# Steps to use
+
+This is the full walkthrough, written so that you do not need to know anything about programming. Follow it in order. Nothing here can break your computer.
+
+You will type some commands. A **command** is just a line of text you type into a black-and-white window called a **terminal**, then press Enter. The computer reads the line and does what it says.
+
+**How to open a terminal:**
+
+| Your computer | What to do |
+| :--- | :--- |
+| **Windows** | Press the Windows key, type `powershell`, press Enter |
+| **Mac** | Press `Cmd` + `Space`, type `terminal`, press Enter |
+| **Linux** | Press `Ctrl` + `Alt` + `T` |
+
+Leave that window open. You will use it for most of the steps.
+
+---
+
+## Step 1 — Install Node.js
+
+Node.js lets your computer run the app. You only ever do this once.
+
+1. Go to **https://nodejs.org**
+2. Click the big green button that says **LTS** (it means "the stable one")
+3. Open the file it downloads and click Next / Continue until it finishes
+4. **Close your terminal window completely and open a new one.** This matters — the terminal only notices new programs when it starts up.
+
+Now check it worked. Type this and press Enter:
+
+```bash
+node --version
+```
+
+You should see a number, something like `v24.4.1`. Any number is fine.
+
+> **If you instead see "not recognized" or "command not found":** Node did not install, or you did not open a fresh terminal. Close every terminal window, open a new one, and try again. If it still fails, run the installer again.
+
+---
+
+## Step 2 — Install Claude Code and sign in
+
+D.W.I.G.I does not contain the AI itself. It is the *council* — the instructions, the executive perspectives, the memory. The thinking is done by **Claude Code**, a program made by Anthropic, which D.W.I.G.I runs for you behind the scenes.
+
+So Claude Code has to be installed and signed in first, or the app will open but the advisor will not answer.
+
+1. Follow Anthropic's official instructions: **https://docs.claude.com/en/docs/claude-code/overview**
+2. Sign in when it asks you to
+
+Then check it worked:
+
+```bash
+claude --version
+```
+
+You should see a version number. That is the only thing this project checks for.
+
+> **About accounts and cost:** which Anthropic plan or account you need, and what it costs, is entirely between you and Anthropic. This project does not know, does not check, and cannot tell you. Please do not treat anything in this repository as an answer to that — read their documentation.
+
+---
+
+## Step 3 — Get the D.W.I.G.I files onto your computer
+
+Pick **one** of these two options.
+
+### Option A — if you have Git installed (recommended)
+
+Type these two lines, one at a time, pressing Enter after each:
+
+```bash
+git clone https://github.com/bhargav-patnaik01/DWIGI
+cd DWIGI
+```
+
+The first line copies all the files onto your computer into a new folder called `DWIGI`. The second line means "go into that folder" — from now on, the terminal is standing inside it.
+
+### Option B — if you do not have Git
+
+1. Go to **https://github.com/bhargav-patnaik01/DWIGI**
+2. Click the green **Code** button, then **Download ZIP**
+3. Unzip the file somewhere you will remember, like your Documents folder
+4. In your terminal, type `cd ` (with a space after it), then drag the unzipped folder onto the terminal window and press Enter
+
+Either way, check you are in the right place:
+
+```bash
+ls
+```
+
+*(On Windows PowerShell, `ls` works too.)*
+
+You should see names including `CLAUDE.md`, `core`, `gui`, and `README.md`. If you do not see those, you are in the wrong folder — go back and try Option A or B again.
+
+---
+
+## Step 4 — Go into the app folder
+
+The desktop app lives in a sub-folder called `gui`. Move into it:
+
+```bash
+cd gui
+```
+
+---
+
+## Step 5 — Download the app's helper code
+
+```bash
+npm install
+```
+
+This downloads the building blocks the app is made from. **It takes a few minutes and prints a lot of text.** That is normal — let it finish.
+
+You will know it is done when you get your normal prompt back and can type again. A few lines mentioning `warn` are fine and can be ignored. You only need to do this step once.
+
+---
+
+## Step 6 — Build the app
+
+```bash
+npm run build
+```
+
+This turns the source code into the actual application. It takes under a minute. You should see `✓ Compiled successfully` and `✓ Exporting` near the end.
+
+You only need to do this once, and again later if you download an updated version.
+
+---
+
+## Step 7 — Start it
+
+```bash
+npm start
+```
+
+A window should open with a dark screen, the D.W.I.G.I logo, and a **Get Started** button.
+
+**This is the command you will use every time from now on.** To open the app in future: open a terminal, `cd` into the `DWIGI/gui` folder, and type `npm start`.
+
+---
+
+## Step 8 — Tell it where its files are
+
+The app needs to know where you put the D.W.I.G.I folder, because that folder *is* the council — the executive definitions and your business memory live there as ordinary files.
+
+1. Click **Settings** in the left-hand menu
+2. Next to **Repository location**, click **Choose…**
+3. Select the `DWIGI` folder — the outer one you created in Step 3, **not** the `gui` folder inside it
+4. Click **Chat** in the left-hand menu to go back
+
+---
+
+## Step 9 — Let it get to know your business
+
+Click **Get Started**.
+
+The advisor will speak first and ask you about your company — what it does, what stage it is at, what is currently getting in your way. Answer in plain sentences, as you would to a person. There is no form to fill in.
+
+This is worth doing properly. Every recommendation it gives you later is grounded in these answers, and it will tell you honestly when it is guessing because it does not know something.
+
+Some questions it will never guess at — your cash position, runway, monthly spend, and revenue. It either asks you or records them as unknown. It will not invent a number about your money.
+
+When you are done, your answers are saved to `core/business_memory.md` inside the folder. That file stays on your computer and is never uploaded anywhere.
+
+---
+
+## Step 10 — Start using it
+
+You are set up. Here is what the menu on the left does:
+
+| Menu item | What it is for |
+| :--- | :--- |
+| **Chat** | Ask about a decision. This is the main thing you do. |
+| **Executive Board** | See the eight executives, and talk to one of them alone |
+| **Dashboard** | A quick read on your business at a glance |
+| **Decisions** | Every decision it has recorded for you, and why |
+| **Memory** | Everything it currently knows about your business |
+| **Settings** | Change the folder, the theme, and which executives take part |
+
+**Just ask it things**, the way you would ask an experienced advisor:
+
+> *"Should I raise my prices?"*
+> *"I have two months of runway left. What do I do?"*
+> *"Should I hire a second engineer or wait?"*
+
+It decides for itself how much thought a question deserves. A small question gets a short answer; a decision you cannot undo gets the whole council.
+
+---
+
+## If something goes wrong
+
+| What you see | What it means and what to do |
+| :--- | :--- |
+| `node: command not found` | Node.js is not installed, or you did not open a fresh terminal after installing. Redo Step 1. |
+| `npm: command not found` | Same cause — npm comes with Node.js. Redo Step 1. |
+| `'cd' ... no such file or directory` | You are not where you think you are. Type `ls` to see where you are, then `cd` into the right folder. |
+| **"Runtime not found"** in the app | Claude Code is not installed or not signed in. Redo Step 2 and check `claude --version` works. |
+| **"No repository selected"** in the app | You skipped Step 8. Go to Settings → Repository location. |
+| The welcome screen keeps coming back | Onboarding has not finished yet. Click Get Started and complete the conversation. |
+| Something else | Open an issue on GitHub and paste what the terminal printed. |
+
+---
+
 ## What this repository contains
 
 Two things, deliberately separate:
@@ -25,19 +227,19 @@ Everything is file-native and local. There is no database, no server, and no tel
 
 ---
 
-## Requirements
+## Requirements, stated exactly
 
-- **A working, authenticated Claude Code installation**, resolvable on your `PATH` as `claude`. That is the verified requirement: the engine runs inside Claude Code, and the desktop application drives it as a child process and cannot substitute for it. How you install and sign in is covered by [Anthropic's own documentation](https://docs.claude.com/en/docs/claude-code/overview). This project makes no claim about which plans, subscriptions, or API arrangements apply, what any of it costs, or who is eligible — it does not check, and you should not treat anything here as an answer to those questions.
+- **A working, authenticated Claude Code installation**, resolvable on your `PATH` as `claude`. That is the verified requirement, and the only one this project checks. Which Anthropic plan, subscription, or API arrangement applies, what it costs, and who is eligible are questions this project does not know the answer to and does not check — see [Anthropic's documentation](https://docs.claude.com/en/docs/claude-code/overview).
 - **Node.js and npm**, for the desktop application only. Built and tested on Node 24. Older versions are untested here; if you need a supported floor, take it from the Next.js 15 and Electron 34 release notes rather than from this file.
 - Nothing else. No API keys are stored, read, or required by any file in this repository.
 
 ---
 
-## Using the engine on its own
+## Using the engine without the desktop app
+
+The desktop application is optional. The engine is plain markdown, so you can run it directly in a terminal from inside the repository folder:
 
 ```bash
-git clone https://github.com/bhargav-patnaik01/DWIGI
-cd DWIGI
 claude
 ```
 
@@ -57,35 +259,22 @@ Two more exist for the desktop application's runtime modes — `/lens <executive
 
 ---
 
-## Installing the desktop application
+## The prebuilt Windows download
 
-Two paths. Either is a complete installation.
-
-### From source (works everywhere)
-
-```bash
-cd gui
-npm install
-npm run build
-npm start
-```
-
-### From the Windows build
-
-`npm run package` produces an unpacked application in `gui/release/win-unpacked/`.
+If you would rather not build from source, the [releases page](https://github.com/bhargav-patnaik01/DWIGI/releases) has a Windows archive. Extract it and run `D.W.I.G.I.exe` from the extracted folder — the executable needs the files beside it, so do not move it out on its own. Setup from Step 8 onwards is identical.
 
 > **The Windows V1 build is currently unsigned. Windows SmartScreen or
 > organizational Application Control policies may warn about or block the
 > application. If the binary is blocked, use the source installation instead.
 > Do not disable your system's security protections.**
 
-Signing status: **UNSIGNED** — a deliberate decision for V1, not a defect. `RELEASE_NOTES.md` records the details, including one caveat about executable branding worth reading before you publish a binary of your own.
+Signing status: **UNSIGNED** — a deliberate decision for V1, not a defect. `RELEASE_NOTES.md` and `KNOWN_LIMITATIONS.md` record the details, including a caveat about executable branding worth reading before you publish a binary of your own.
 
-Then open **Settings → Repository location** and choose the directory you cloned. The advisor reads its operating instructions from there; the application never writes to it.
+---
 
-With no `core/business_memory.md` present you get a welcome screen; **Get Started** hands you to the engine's own onboarding, and the advisor speaks first.
+## Other useful commands
 
-Other useful scripts:
+Run these from inside the `gui` folder:
 
 ```bash
 npm run dev        # Electron + Next dev server, hot reload

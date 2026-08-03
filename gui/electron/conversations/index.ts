@@ -49,7 +49,7 @@ import {
   NEW_CONVERSATION_TITLE,
   readConversationMode,
   TITLE_MAX_LENGTH,
-  type ConversationMode,
+  type NewConversationMode,
   type ConversationResult,
   type ConversationSummary,
   type ConversationTranscript,
@@ -289,7 +289,7 @@ export class ConversationStore {
     workspacePath: string,
     options: {
       sessionId?: string | null;
-      mode?: ConversationMode;
+      mode?: NewConversationMode;
       /**
        * Title to use instead of the placeholder.
        *

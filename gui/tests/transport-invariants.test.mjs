@@ -26,23 +26,44 @@ const { toAdvisorEvents } = require('../dist-electron/electron/bridge/events.js'
 
 const FIXTURE = path.join(HERE, 'fixtures', 'stream-turn.ndjson');
 
-/** Replay a captured stream through the real parser exactly as the runtime does. */
-function replay(file) {
+/**
+ * Replay a captured stream through the real parser exactly as the runtime does.
+ *
+ * `adjudicated` names tool calls this cockpit is pretending to have answered
+ * itself, which is what suppresses a duplicate denial notice for a decision the
+ * founder already made.
+ */
+function replay(file, { adjudicated = [] } = {}) {
   const lines = readFileSync(file, 'utf8').split('\n').filter((l) => l.trim());
+  const answered = new Set(adjudicated);
   const state = { textIndex: null };
   const events = [];
-  const grants = [];
+  const sightings = [];
 
   for (const line of lines) {
     const { events: produced } = toAdvisorEvents(JSON.parse(line), {
       turnId: 'test-turn',
       state,
-      registerGrant: (requestId, tool) => grants.push({ requestId, tool }),
+      onControlRequest: (sighting) => sightings.push(sighting),
+      wasAdjudicated: (id) => answered.has(id),
     });
     events.push(...produced);
   }
 
-  return { events, grants, lineCount: lines.length };
+  return { events, sightings, lineCount: lines.length };
+}
+
+/** Parse one frame in isolation, collecting both events and control sightings. */
+function parseOne(raw, { adjudicated = [], state = { textIndex: null } } = {}) {
+  const answered = new Set(adjudicated);
+  const sightings = [];
+  const { events } = toAdvisorEvents(raw, {
+    turnId: 't',
+    state,
+    onControlRequest: (sighting) => sightings.push(sighting),
+    wasAdjudicated: (id) => answered.has(id),
+  });
+  return { events, sightings };
 }
 
 test('fixture is a real captured stream', () => {
@@ -111,7 +132,6 @@ test('no fatal errors are produced from a healthy stream', () => {
 
 test('unparseable and unknown shapes are ignored rather than guessed at', () => {
   const state = { textIndex: null };
-  const noop = () => {};
 
   for (const shape of [
     null,
@@ -122,23 +142,117 @@ test('unparseable and unknown shapes are ignored rather than guessed at', () => 
     { type: 'system', subtype: 'init' },
     { type: 'stream_event', event: { type: 'unknown_inner' } },
   ]) {
-    const { events } = toAdvisorEvents(shape, {
-      turnId: 't',
-      state,
-      registerGrant: noop,
-    });
+    const { events } = parseOne(shape, { state });
     assert.deepEqual(events, [], `expected no events for ${JSON.stringify(shape)}`);
   }
 });
 
-/**
- * A refusal must surface as `permission-denied` and register a grant handle, so
- * the UI has something to attach the user's decision to.
- */
-test('a refused tool call produces permission-denied and registers a grant', () => {
-  const state = { textIndex: null };
-  const grants = [];
+/* -------------------------------------------------------------------------- */
+/* Native permission protocol                                                  */
+/* -------------------------------------------------------------------------- */
 
+/** The shape the runtime actually sends, captured from CLI 2.1.220. */
+function canUseTool(overrides = {}) {
+  return {
+    type: 'control_request',
+    request_id: 'req_1',
+    request: {
+      subtype: 'can_use_tool',
+      tool_name: 'Write',
+      display_name: 'Write',
+      tool_use_id: 'toolu_abc',
+      input: { file_path: 'C:\\sandbox\\probe.txt', content: 'GRANTED' },
+      ...overrides,
+    },
+  };
+}
+
+test('a can_use_tool control request becomes a blocking permission-request', () => {
+  const { events, sightings } = parseOne(canUseTool());
+
+  const request = events.find((e) => e.kind === 'permission-request');
+  assert.ok(request, 'no permission-request event');
+  assert.equal(request.requestId, 'req_1', 'runtime token must be echoed verbatim');
+  assert.equal(request.tool, 'Write');
+  assert.equal(request.category, 'write');
+  assert.deepEqual(request.targets, ['C:\\sandbox\\probe.txt']);
+  assert.equal(request.detail, 'GRANTED');
+
+  assert.equal(sightings.length, 1, 'the transport was not told about the request');
+  assert.equal(sightings[0].understood, true);
+  assert.equal(sightings[0].toolUseId, 'toolu_abc');
+});
+
+test('the request id is the runtime token, never a fabricated one', () => {
+  const { events } = parseOne(canUseTool({}));
+  const request = events.find((e) => e.kind === 'permission-request');
+  // A minted id would resolve nothing and leave the engine blocked forever.
+  assert.equal(request.requestId, 'req_1');
+});
+
+test('a Bash request exposes the command it would run', () => {
+  const { events } = parseOne(
+    canUseTool({
+      tool_name: 'Bash',
+      input: { command: 'rm -rf build', description: 'Clean build output' },
+    })
+  );
+  const request = events.find((e) => e.kind === 'permission-request');
+  assert.equal(request.tool, 'Bash');
+  assert.equal(request.category, 'run');
+  assert.equal(request.detail, 'rm -rf build');
+  // The founder must be able to read the command before authorising it.
+  assert.ok(request.targets.includes('rm -rf build'));
+});
+
+/**
+ * THE DEADLOCK GUARD.
+ *
+ * The runtime blocks on every control request. A malformed one that produced no
+ * event AND no sighting would be silently dropped, and the turn would hang with
+ * nothing on screen to explain it. The parser must always report the sighting,
+ * so the transport can refuse explicitly.
+ */
+test('a malformed control request is still reported so it can be answered', () => {
+  const cases = [
+    { label: 'no tool name', frame: canUseTool({ tool_name: undefined }) },
+    { label: 'unknown subtype', frame: canUseTool({ subtype: 'some_future_thing' }) },
+    {
+      label: 'no request id',
+      frame: { type: 'control_request', request: { subtype: 'can_use_tool', tool_name: 'Write' } },
+    },
+  ];
+
+  for (const { label, frame } of cases) {
+    const { events, sightings } = parseOne(frame);
+    assert.equal(sightings.length, 1, `${label}: transport was not notified`);
+    assert.equal(sightings[0].understood, false, `${label}: should not be understood`);
+    assert.equal(
+      events.filter((e) => e.kind === 'permission-request').length,
+      0,
+      `${label}: must not ask the founder to authorise something it cannot describe`
+    );
+  }
+});
+
+test('multiple control requests in one turn each produce their own event', () => {
+  const first = parseOne(canUseTool({ tool_use_id: 'toolu_1' }));
+  const second = parseOne({
+    ...canUseTool({ tool_name: 'Edit', tool_use_id: 'toolu_2' }),
+    request_id: 'req_2',
+  });
+
+  assert.equal(first.events[0].requestId, 'req_1');
+  assert.equal(second.events[0].requestId, 'req_2');
+  assert.equal(first.sightings[0].toolUseId, 'toolu_1');
+  assert.equal(second.sightings[0].toolUseId, 'toolu_2');
+});
+
+/**
+ * A denial the founder made themselves must not be reported back to them as
+ * news. They answered the question; the tool result is the consequence.
+ */
+test('a refusal this cockpit adjudicated does not also surface as a notice', () => {
   const refusal = {
     type: 'user',
     message: {
@@ -146,51 +260,76 @@ test('a refused tool call produces permission-denied and registers a grant', () 
       content: [
         {
           type: 'tool_result',
-          content:
-            "Claude requested permissions to write to C:\\sandbox\\probe.txt, but you haven't granted it yet.",
+          content: 'The founder declined this action.',
           is_error: true,
-          tool_use_id: 'toolu_test',
+          tool_use_id: 'toolu_abc',
         },
       ],
     },
-    tool_result_meta: [{ id: 'toolu_test', non_execution_kind: 'user-rejected' }],
+    tool_result_meta: [{ id: 'toolu_abc', non_execution_kind: 'user-rejected' }],
   };
 
-  const { events } = toAdvisorEvents(refusal, {
-    turnId: 't',
-    state,
-    registerGrant: (requestId, tool) => grants.push({ requestId, tool }),
-  });
+  const answered = parseOne(refusal, { adjudicated: ['toolu_abc'] });
+  assert.equal(
+    answered.events.filter((e) => e.kind === 'permission-denied').length,
+    0,
+    'the founder was told twice about one decision'
+  );
 
+  // The activity still resolves, so the timeline does not strand a spinner.
+  const activity = answered.events.find((e) => e.kind === 'activity');
+  assert.ok(activity);
+  assert.equal(activity.state, 'failed');
+});
+
+/**
+ * A refusal the engine issued on its own authority — a deny rule, a classifier —
+ * never reached a dialog, so it must still surface or the founder sees only an
+ * opaque tool failure.
+ */
+test('a refusal the engine made on its own still surfaces as a notice', () => {
+  const refusal = {
+    type: 'user',
+    message: {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          content: "Claude requested permissions to write to C:\\sandbox\\probe.txt, but you haven't granted it yet.",
+          is_error: true,
+          tool_use_id: 'toolu_rule',
+        },
+      ],
+    },
+    tool_result_meta: [{ id: 'toolu_rule', non_execution_kind: 'user-rejected' }],
+  };
+
+  const { events } = parseOne(refusal);
   const denied = events.find((e) => e.kind === 'permission-denied');
-  assert.ok(denied, 'no permission-denied event');
+  assert.ok(denied, 'engine-side denial was swallowed');
   assert.equal(denied.tool, 'Write');
   assert.ok(denied.targets.length > 0, 'no target path extracted');
-  assert.equal(grants.length, 1, 'no grant handle registered');
-  assert.equal(grants[0].requestId, denied.requestId);
+  // v2 removed the handle: there is nothing to answer on a notice.
+  assert.equal(denied.requestId, undefined);
 });
 
 /** An ordinary tool failure must NOT be mistaken for a permission refusal. */
 test('a non-refusal tool error does not produce permission-denied', () => {
-  const state = { textIndex: null };
-  const { events } = toAdvisorEvents(
-    {
-      type: 'user',
-      message: {
-        role: 'user',
-        content: [
-          {
-            type: 'tool_result',
-            content: 'File not found',
-            is_error: true,
-            tool_use_id: 'toolu_other',
-          },
-        ],
-      },
-      tool_result_meta: [],
+  const { events } = parseOne({
+    type: 'user',
+    message: {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          content: 'File not found',
+          is_error: true,
+          tool_use_id: 'toolu_other',
+        },
+      ],
     },
-    { turnId: 't', state, registerGrant: () => {} }
-  );
+    tool_result_meta: [],
+  });
 
   assert.equal(events.filter((e) => e.kind === 'permission-denied').length, 0);
   const activity = events.find((e) => e.kind === 'activity');

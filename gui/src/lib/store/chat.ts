@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import type {
   ActivityEvent,
   AdvisorEvent,
-  PermissionDeniedEvent,
+  PermissionRequestEvent,
   TurnStatus,
 } from '@shared/advisor';
 
@@ -36,13 +36,22 @@ interface ChatState {
   status: TurnStatus;
   sessionId: string | null;
   currentTurnId: string | null;
-  pendingPermissions: PermissionDeniedEvent[];
+  /**
+   * Requests the engine is blocked on, oldest first.
+   *
+   * A queue rather than a single slot: one assistant message can contain
+   * several tool calls, and the runtime asks about each. The dialog answers the
+   * head of the queue, so the founder sees them one at a time in the order the
+   * advisor raised them.
+   */
+  pendingPermissions: PermissionRequestEvent[];
   notices: string[];
   lastError: string | null;
   lastStats: TurnStats | null;
 
   appendUserMessage(text: string): void;
   applyEvent(event: AdvisorEvent): void;
+  /** Drop a request once answered. Does NOT answer it — the caller does that. */
   dismissPermission(requestId: string): void;
   setStatus(status: TurnStatus): void;
   /** Replace the transcript with a stored one. See the note on the action. */
@@ -117,9 +126,9 @@ export const useChat = create<ChatState>()((set) => ({
    * Activity, notices, and errors all describe a *turn*, and a turn that ended
    * before the app closed has no live meaning; showing yesterday's timeline
    * against today's session would be a fabrication. Pending permissions are
-   * dropped for a stronger reason: a grant authorises the next attempt, and
-   * silently carrying an unanswered one across a restart would let a stale
-   * decision authorise a write the founder is no longer looking at.
+   * dropped for a stronger reason: they name a live process that this
+   * conversation switch has just left behind, so an answer would be addressed
+   * to a question no running engine is waiting on.
    */
   hydrate: ({ messages, sessionId }) =>
     set({
@@ -134,12 +143,25 @@ export const useChat = create<ChatState>()((set) => ({
       lastStats: null,
     }),
 
+  /**
+   * Remove an answered request and decide what the turn is doing now.
+   *
+   * With one request left the answer resumes the engine, so the status returns
+   * to `working` — the advisor is running again, and showing anything else
+   * would tell the founder the turn had ended when it had not. With more
+   * queued, the next one is already blocking, so the status stays put.
+   */
   dismissPermission: (requestId) =>
-    set((s) => ({
-      pendingPermissions: s.pendingPermissions.filter((p) => p.requestId !== requestId),
-      // Status returns to working only if the turn is still live; otherwise idle.
-      status: s.currentTurnId ? s.status : 'idle',
-    })),
+    set((s) => {
+      const pendingPermissions = s.pendingPermissions.filter(
+        (p) => p.requestId !== requestId
+      );
+      if (pendingPermissions.length > 0) return { pendingPermissions };
+      return {
+        pendingPermissions,
+        status: s.currentTurnId ? ('working' as const) : ('idle' as const),
+      };
+    }),
 
   applyEvent: (event) =>
     set((s) => {
@@ -233,12 +255,25 @@ export const useChat = create<ChatState>()((set) => ({
           return { activity };
         }
 
-        /* ------------------------------------------ permissions: append/status */
-        case 'permission-denied':
+        /* --------------------------- permissions: block until the user answers */
+        case 'permission-request': {
+          // Defensive against a redelivered request id: the engine is blocked on
+          // one question, and queueing it twice would show two dialogs where the
+          // second can never be answered.
+          if (s.pendingPermissions.some((p) => p.requestId === event.requestId)) {
+            return { status: 'awaiting-permission' as const };
+          }
           return {
             pendingPermissions: [...s.pendingPermissions, event],
             status: 'awaiting-permission',
           };
+        }
+
+        /* ---------------------- permissions: refused by the engine, not by us */
+        case 'permission-denied':
+          // A notice, not a question. Nothing to answer, so nothing is queued
+          // and the turn is not paused — it is already continuing without it.
+          return { notices: [...s.notices.slice(-4), event.summary] };
 
         /* ----------------------------------------------------- notices: append */
         case 'runtime-notice':
@@ -252,7 +287,18 @@ export const useChat = create<ChatState>()((set) => ({
           return {
             messages,
             currentTurnId: null,
-            status: s.pendingPermissions.length > 0 ? 'awaiting-permission' : 'idle',
+            /*
+             * Pending requests are DROPPED here, not preserved.
+             *
+             * The turn is over — cancelled, finished, or dead — so nothing is
+             * waiting on an answer any more. v1 kept them and held the status at
+             * `awaiting-permission`, which was right when a grant authorised a
+             * future retry. It is wrong now: a dialog for a stopped process
+             * cannot be answered, and leaving it up is the deadlock the contract's
+             * sixth invariant exists to forbid.
+             */
+            pendingPermissions: [],
+            status: 'idle',
             lastStats: event.stats ?? null,
             activity: s.activity.map((a) =>
               a.state === 'started' ? { ...a, state: 'completed' as const } : a
@@ -265,9 +311,13 @@ export const useChat = create<ChatState>()((set) => ({
           const messages = s.messages.map((m) =>
             m.streaming ? { ...m, streaming: false } : m
           );
+          // A fatal error kills the process, so the same reasoning as
+          // `turn-complete` applies: nothing can answer, so nothing may ask.
+          const clearedPermissions = event.fatal ? [] : s.pendingPermissions;
           return {
             messages,
             lastError: event.message,
+            pendingPermissions: clearedPermissions,
             status: event.fatal ? 'error' : s.status === 'working' ? 'idle' : s.status,
             currentTurnId: event.fatal ? null : s.currentTurnId,
           };

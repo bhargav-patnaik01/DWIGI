@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowUp, Square } from 'lucide-react';
+import { ModeSelector } from '@/components/chat/ModeSelector';
 import { cn } from '@/lib/utils';
 
 interface ComposerProps {
@@ -67,6 +68,13 @@ export function Composer({ disabled, busy, onSend, onCancel, placeholder }: Comp
 
   return (
     <div className="px-5 pb-5">
+      {/* Above the input, where a choice about the next conversation belongs —
+          close enough to be seen before typing, outside the box so it never
+          reads as an attribute of the message being written. */}
+      <div className="mb-2">
+        <ModeSelector disabled={disabled} />
+      </div>
+
       <div
         className={cn(
           'mx-auto flex max-w-reading items-end gap-2 rounded-xl border bg-surface p-2',

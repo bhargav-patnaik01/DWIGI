@@ -15,7 +15,7 @@ FAIL=0
 
 # ---------------------------------------------------------------- sections ---
 declare -A MAXSEC
-for f in CLAUDE.md core/*.md core/onboarding/*.md docs/validation/*.md; do
+for f in CLAUDE.md core/*.md core/executives/*.md core/onboarding/*.md docs/validation/*.md; do
   [ -e "$f" ] || continue
   # Count "## N." headings, skipping fenced code blocks (which contain
   # illustrative headings that are not real sections).
@@ -45,7 +45,20 @@ while IFS= read -r hit; do
     echo "  BROKEN           $loc -> $target §$sec (file has $max sections)"
     FAIL=1
   fi
-done < <(grep -rhoE '[A-Za-z_.]+\.md`? §[0-9]+' --include=*.md . | sort -u | sed 's/^/ref:/')
+#
+# FINDINGS.md is excluded, and the reason is not convenience.
+#
+# It is a dated snapshot — "Validation date: 2026-07-27 · Commit under test:
+# a1efb7f" — whose §0 states that the original report is preserved unedited. Its
+# references describe the repository as it was at that commit, so checking them
+# against the present tree is a category error: the only way to make them
+# "resolve" would be to rewrite a historical record, which is the one thing that
+# document exists not to do.
+#
+# This exemption covers dated reports ONLY. Every live document — the kernel,
+# core/, .claude/, and the other validation artifacts — is still checked.
+done < <(grep -rhoE '[A-Za-z_.]+\.md`? §[0-9]+' --include=*.md \
+           --exclude=FINDINGS.md . | sort -u | sed 's/^/ref:/')
 
 [ "$FAIL" -eq 0 ] && echo "  all references resolve"
 
@@ -102,12 +115,35 @@ fi
 # ------------------------------------------------- context-per-interaction ---
 echo
 echo "=== ADR-007 amended bound (<=6 files per interaction) ==="
+NLENS=$(ls -1 core/executives/*.md 2>/dev/null | wc -l)
+# ADR-012: the gate reads only the manifest, then loads admitted lenses.
+# Base = kernel, memory, calibration, reasoning_rules, execution_pipeline, manifest.
+BASE=6
+FOCUSED_MIN=$((BASE + 1))    # Focused: 1 constructive lens, no challenge pass
+FOCUSED_MAX=$((BASE + 2))    # Focused: 2 constructive lenses
+FULL_MIN=$((BASE + 4))       # Full: 2 constructive + 2 challenge
+FULL_MAX=$((BASE + 6))       # Full: 4 constructive + 2 challenge
 echo "  boot:            CLAUDE.md, business_memory.md, calibration_journal.md         (3)"
-echo "  Focused/Full:    + executive_matrix.md, reasoning_rules.md, execution_pipeline.md  (6)"
+echo "  routing base:    + reasoning_rules.md, execution_pipeline.md, executive_manifest.md ($BASE)"
+echo "  Focused:         + 1-2 admitted lenses                                  ($FOCUSED_MIN-$FOCUSED_MAX)"
+echo "  Full:            + 2-4 constructive + 2 challenge                      ($FULL_MIN-$FULL_MAX)"
 echo "  writing record:  kernel, memory, calibration, learning_protocol.md            (4)"
 echo "                   (execution_pipeline.md excluded by design — the memo already"
 echo "                    exists; see learning_protocol.md §2 and ADR-007 amendment 2)"
-echo "  OK:              peak is 6, bound is 6."
+echo "  $NLENS lens definitions exist; the gate no longer reads them to route (ADR-012)."
+if [ "$FULL_MAX" -gt 6 ]; then
+  echo "  BREACH:          peak is $FULL_MAX, bound is 6."
+  echo "                   ADR-012 cut the peak from 13 to $FULL_MAX by loading only admitted"
+  echo "                   lenses, but the routing base alone is already $BASE files — so ANY"
+  echo "                   deliberation with 2+ lenses exceeds 6 regardless of manifest design."
+  echo "                   The file-count criterion is arithmetically unreachable while"
+  echo "                   executives are separate files. See ADR-012 for the measured"
+  echo "                   numbers and the recommendation; do NOT silence this by raising"
+  echo "                   the bound without an approved amendment."
+  FAIL=1
+else
+  echo "  OK:              peak is $FULL_MAX, bound is 6."
+fi
 
 echo
 if [ "$FAIL" -eq 0 ]; then

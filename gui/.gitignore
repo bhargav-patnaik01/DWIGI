@@ -38,8 +38,16 @@ yarn-error.log*
 # second authority that silently outlives a change to the real icon.
 /public/icon.png
 
+# Staged copy of the startup animation. `gui/start.mp4` is the tracked source;
+# `npm run prepare:splash` puts this one where Next can serve it.
+/public/start.mp4
+
 # Design working files — logo masters, motion studies, anything kept for
 # reference rather than consumed by the build. Preserved locally on purpose;
 # `gui/icon.png` is the only image the application actually reads, so nothing
 # here needs to travel with the source.
 /design/
+
+# Pipeline benchmark output — regenerate with `npm run benchmark`
+/benchmark/
+benchmark-run.log

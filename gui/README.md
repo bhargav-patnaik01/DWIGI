@@ -91,11 +91,11 @@ The cockpit has two chat types, and the difference between them is a founder's e
 | Opened from | Chat, the default | Executive Board → *Chat with …* |
 | Transmits | Nothing, unless lenses are disabled | `/lens <id>` ahead of the message |
 
-Both directives are **repository commands** in `.claude/commands/`, not prompts this application composes. `shared/runtime-modes.ts` knows their names and argument order and nothing else — no persona text, no routing logic, no budget hints. That is the whole of what makes single-agent mode genuine isolation rather than a costume: the semantics live next to `core/executive_matrix.md`, which stays the only definition of who each executive is.
+Both directives are **repository commands** in `.claude/commands/`, not prompts this application composes. `shared/runtime-modes.ts` knows their names and argument order and nothing else — no persona text, no routing logic, no budget hints. That is the whole of what makes single-agent mode genuine isolation rather than a costume: the semantics live next to `core/executives/`, which stays the only definition of who each executive is.
 
 Three consequences worth stating plainly, because each one is a place this could have been faked:
 
-- **The Executive Board invents nobody.** Every card is projected from `core/executive_matrix.md`. If that file is unreadable the screen says Unavailable rather than falling back to a built-in roster.
+- **The Executive Board invents nobody.** Every card is discovered from `core/executives/`, one file per lens. If the directory is unreadable the screen says Unavailable rather than falling back to a built-in roster; if a single definition is unreadable, that executive is named as missing rather than quietly dropped from an otherwise complete-looking board.
 - **No live agent activity is shown, ever.** The runtime reports tool use and says nothing about which lens is participating. Configured state is displayed because it is known; "Active", "Consulted", and "CEO is thinking" are not, so they do not exist here. `/stress-test` is how real routing gets audited, and it comes from the engine.
 - **Three executives cannot be disabled**, and the interface says so instead of offering a switch the engine would ignore. Risk Officer and Devil's Advocate are structural at S5; CFO carries a solvency floor. Agent Management reads all three facts out of the matrix rather than hardcoding them.
 

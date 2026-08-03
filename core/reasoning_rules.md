@@ -2,7 +2,7 @@
 
 How lenses are selected, how much reasoning a decision receives, and how disagreement is resolved.
 
-**Persona definitions live in `core/executive_matrix.md`.** That file defines *who the lenses are*; this one defines *how they are selected and reconciled*. Read both at Focused budget or higher.
+**Participation metadata lives in `core/executive_manifest.md`; persona definitions live in `core/executives/`, one file per lens.** The manifest decides *who is in the room*, those files define *how each lens reasons once it is*, and this one defines *how they are selected and reconciled*. Read the manifest at Focused budget or higher; **load a persona file only after its lens has been admitted.** §9 describes the split.
 
 ---
 
@@ -12,16 +12,28 @@ Routing is **procedural, not advisory.** A lens does not receive an invitation i
 
 ### The gate
 
-Before S4 begins, evaluate every lens against its criteria in `executive_matrix.md`:
+Before S4 begins, evaluate every entry in `core/executive_manifest.md`. **That file is the only input to this decision**, and no persona file is opened until it has been made:
 
 ```
-for each lens:
+read core/executive_manifest.md          ← the ONLY file Layer 1 needs
+
+for each entry:
     if suppression condition met      -> EXCLUDED
     else if activation condition met  -> ADMITTED
     else                              -> EXCLUDED
+
+    evaluate "Escalates when" regardless of the above   ← see manifest §4
+                                          │
+load core/executives/<id>.md for ADMITTED lenses only ──┤
                                           │
 S4 convenes with ADMITTED lenses only ────┘
 ```
+
+**Evaluate escalation for every entry, including excluded ones.** A lens can force the whole decision to a higher budget without participating in it — Risk Officer is suppressed at Focused budget and escalates the moment irreversibility appears, so the trigger has to be readable while that lens is absent. The manifest keeps all eight escalation criteria in one already-open file precisely so this costs nothing.
+
+**An excluded lens's persona file is never opened.** This is what makes suppression cheap as well as absolute: the reasoning of a lens that is not in the room is not in the context either.
+
+**A lens with no manifest entry does not participate.** The gate cannot evaluate what it cannot read, and admitting an unevaluated lens would be the false positive this gate exists to prevent. Say which id had no entry rather than guessing at its criteria.
 
 **An EXCLUDED lens does not enter deliberation.** It is not present-and-quiet, not consulted-then-filtered, not represented by a caveat. It was never in the room. This is why nothing of it can appear in the output — absence is structural, not editorial.
 
@@ -248,3 +260,21 @@ A `confirmed` runway figure four months old is not a Known Fact. It is a Weak Ev
 ### The failure this prevents
 
 An `inferred` value used as a Known Fact produces confident advice resting on the advisor's own guesswork — the most dangerous failure available to it, because nothing in the output signals that the foundation was invented. **Provenance laundering is the specific error this section exists to make impossible**, and it is tracked as a runtime metric (`calibration_journal.md` §9).
+
+---
+
+## 9. The lenses — where they live and how they load
+
+The split between `core/executive_manifest.md` and `core/executives/<id>.md` is stated in the manifest's §1 and not repeated here. What follows is what the manifest does not say.
+
+These are **evaluation frameworks, not characters.** You never speak as a persona and never write persona dialogue to the founder (`CLAUDE.md` §2). You run these frameworks internally and deliver one synthesis.
+
+**The directory is the roster; the manifest is the gate's index of it.** Every `.md` file in `core/executives/` is a lens, and no list of executives exists anywhere else. Each carries front matter — `id`, `display_name`, `role`, `ordinal`, `version`. `id` is what `/lens` and `/council` accept, and the key the manifest joins on. `ordinal` fixes presentation order only; precedence in reasoning is the Lead and Support tiers of §3.
+
+**Adding a lens means two files: its definition and its manifest entry.** A definition with no entry never routes; an entry with no definition is reported when the gate tries to load it. Neither half is silently tolerated, because either failure changes who deliberates without saying so.
+
+**Constructive lenses** build the recommendation at **S4** and are the pool §1 routes 2–4 of. **Challenge lenses** do not participate at S4; they attack the emerging recommendation at **S5**, and are always active at Full and Maximum budget regardless of domain. A challenge lens that argued alongside the constructive ones would be negotiated with while the answer was still forming, and would lose its adversarial function — it must attack a finished draft.
+
+The system currently defines six constructive lenses — CEO, CFO, COO, Sales/GTM, Product, Coach — and two challenge lenses — Risk Officer, Devil's Advocate. **That is a fact about the current manifest, not a rule.** Adding a lens changes it; §1's count of 2–4 constructive lenses is what constrains a deliberation.
+
+A persona file carries six fields in order: *Objective*, *Owns*, *Evaluates by*, *Heuristics*, *Fails by*, *Tension with*. Read *Fails by* as actively as *Heuristics* — it describes how this lens damages a recommendation when it overreaches.

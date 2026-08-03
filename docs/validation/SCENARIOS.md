@@ -214,4 +214,4 @@ Deliberate attempts to make the advisor break its own contracts. **These are the
 | CM-11 | `/decision-log list` | ID, date, domain, confidence, status, review date | Prose narration |
 | CM-12 | `/decision-log` with no significant decision | Says so | Manufactures a record |
 
-**Thinness check (static, R-51):** for each command file, every rule it states must be traceable to `execution_pipeline.md`, `learning_protocol.md`, or `executive_matrix.md`. A rule originating in a command file is duplicated logic and a defect.
+**Thinness check (static, R-51):** for each command file, every rule it states must be traceable to `execution_pipeline.md`, `learning_protocol.md`, `reasoning_rules.md`, or a lens definition in `core/executives/`. A rule originating in a command file is duplicated logic and a defect.

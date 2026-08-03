@@ -29,8 +29,12 @@
  * the advisor's, and deleting `gui/` must leave the Executive Intelligence
  * System byte-identical to a terminal-only install.
  *
- * Pure types only. No runtime code, no imports.
+ * Pure types only, apart from the small readers at the foot of the file.
  */
+
+import { DEFAULT_MEMORY_SCOPE, readMemoryScope, type MemoryScope } from './runtime-modes';
+
+export type { MemoryScope };
 
 /**
  * On-disk format version.
@@ -63,19 +67,56 @@ export const NEW_CONVERSATION_TITLE = 'New conversation';
  * right runtime mode transmitted on the next turn. It holds no persona text, no
  * routing decision, and no business content.
  *
- * `lensId` is a canonical identifier from `core/executive_matrix.md` and nothing
- * else. The executive's name, role, and mandate are read from the repository
- * every time they are displayed — storing them here would be a copy that goes
- * stale the moment the matrix is edited.
+ * `lensId` is a canonical identifier from `core/executives/` and nothing else.
+ * The executive's name, role, and mandate are read from the repository every
+ * time they are displayed — storing them here would be a copy that goes stale
+ * the moment that executive's file is edited.
  */
 export interface ConversationMode {
   kind: 'council' | 'lens';
   /** Canonical lens id when `kind` is `lens`; null for Council conversations. */
   lensId: string | null;
+  /**
+   * Whether this conversation is grounded in the founder's own company.
+   *
+   * Fixed when the conversation is created and never written again. The global
+   * default is a setting for the *next* conversation; this is a property of
+   * *this* one.
+   *
+   * That distinction is the whole feature. A founder who switches the default to
+   * Executive Learning and then reopens last month's fundraising thread must not
+   * find it answering as though it had never heard of their company — and the
+   * reverse, a Learning conversation silently acquiring their cash position on
+   * reopen, is worse still. Neither can happen if the value is only ever read
+   * back from the record it was written into.
+   *
+   * Records written before this field existed read back as `business`, which is
+   * what they were: the only mode that existed.
+   */
+  memory: MemoryScope;
 }
 
-/** The default: normal Executive Intelligence behaviour. */
-export const COUNCIL_CONVERSATION_MODE: ConversationMode = { kind: 'council', lensId: null };
+/**
+ * A mode as a *caller* supplies it when starting a conversation.
+ *
+ * `memory` is optional here and required on the stored record. That asymmetry is
+ * deliberate: the scope is resolved from the founder's current setting in one
+ * place (`useConversations.startNew`) rather than by every caller, so a screen
+ * that opens a conversation cannot forget to attach it and silently produce a
+ * Business thread for someone who selected Executive Learning.
+ *
+ * Supplying it explicitly still wins, for a caller with a reason.
+ */
+export type NewConversationMode = Omit<ConversationMode, 'memory'> & {
+  memory?: MemoryScope;
+};
+
+/** The default: normal Executive Intelligence behaviour, grounded in the company. */
+export const COUNCIL_CONVERSATION_MODE: ConversationMode = {
+  kind: 'council',
+  lensId: null,
+  memory: DEFAULT_MEMORY_SCOPE,
+};
 
 /**
  * One settled message, exactly as it was shown.
@@ -197,9 +238,22 @@ export function isConversationId(value: unknown): value is string {
 export function readConversationMode(value: unknown): ConversationMode {
   if (typeof value !== 'object' || value === null) return COUNCIL_CONVERSATION_MODE;
   const record = value as Record<string, unknown>;
-  if (record.kind !== 'lens') return COUNCIL_CONVERSATION_MODE;
-  if (typeof record.lensId !== 'string') return COUNCIL_CONVERSATION_MODE;
-  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(record.lensId)) return COUNCIL_CONVERSATION_MODE;
-  if (record.lensId.length > 40) return COUNCIL_CONVERSATION_MODE;
-  return { kind: 'lens', lensId: record.lensId };
+
+  /*
+   * Scope is read independently of kind.
+   *
+   * The two are orthogonal — a single-executive conversation can be either
+   * grounded or not — and reading them together would mean one malformed field
+   * silently resetting the other. An unreadable lens id must not be able to
+   * turn a Learning conversation into a Business one.
+   */
+  const memory = readMemoryScope(record.memory);
+
+  if (record.kind !== 'lens') return { kind: 'council', lensId: null, memory };
+  if (typeof record.lensId !== 'string') return { kind: 'council', lensId: null, memory };
+  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(record.lensId)) {
+    return { kind: 'council', lensId: null, memory };
+  }
+  if (record.lensId.length > 40) return { kind: 'council', lensId: null, memory };
+  return { kind: 'lens', lensId: record.lensId, memory };
 }

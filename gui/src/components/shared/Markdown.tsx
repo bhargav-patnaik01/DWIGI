@@ -227,7 +227,7 @@ export function Markdown({ source }: { source: string }) {
           case 'table':
             return (
               <div key={index} className="overflow-x-auto rounded-lg border border-line">
-                <table className="w-full text-[12.5px]">
+                <table className="w-full text-[13px]">
                   <thead>
                     <tr className="border-b border-line bg-surface">
                       {block.header.map((cell, j) => (
@@ -273,7 +273,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
         <CopyButton value={code} />
       </div>
       <pre className="overflow-x-auto px-3 py-2.5">
-        <code className="font-mono text-[12.5px] leading-relaxed text-ink/90">{code}</code>
+        <code className="font-mono text-[13px] leading-relaxed text-ink/90">{code}</code>
       </pre>
     </div>
   );

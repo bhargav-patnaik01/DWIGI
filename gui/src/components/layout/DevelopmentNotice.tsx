@@ -38,7 +38,7 @@ export function DevelopmentNotice() {
         aria-hidden
         className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-caution sm:mt-0"
       />
-      <p className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-muted">
+      <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-muted">
         <span className="font-medium text-ink">D.W.I.G.I is still in development.</span>{' '}
         This is V1, and AI advisors can make mistakes. Review important decisions carefully.
       </p>

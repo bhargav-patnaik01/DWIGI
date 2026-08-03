@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <title>D.W.I.G.I</title>
+    <style>
+      /*
+       * The splash is its own window, so it carries its own styling rather than
+       * the app's bundle — loading Tailwind here would mean waiting for the very
+       * bundle this screen exists to cover.
+       *
+       * `--canvas` is duplicated from globals.css as a literal. That is a real
+       * duplication and it is the right trade: the alternative is a stylesheet
+       * request on the startup path, and the value is the window background
+       * behind a full-bleed video where a few points of drift would be
+       * invisible anyway.
+       */
+
+      :root {
+        /*
+         * 24px on a 360px window — about 7% of the edge.
+         *
+         * Deliberately larger than the app's own 12/16px card radii: this is a
+         * window corner rather than a card corner, and it reads at the scale of
+         * the OS chrome it sits against rather than the UI it precedes.
+         *
+         * Defined only here. The host makes the window transparent and square
+         * and leaves the shape entirely to this value, so there is no second
+         * copy to drift from.
+         */
+        --splash-radius: 24px;
+      }
+      /*
+       * The page itself is transparent, not dark.
+       *
+       * The window is `transparent: true` so the rounded corners show the
+       * desktop rather than a dark square with lighter arcs painted on it.
+       * Anything opaque here — including a background on html or body — would
+       * fill the full rectangle and undo that.
+       */
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+        cursor: default;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+
+      /* The whole window drags, so a frameless splash can still be moved. */
+      body {
+        -webkit-app-region: drag;
+      }
+
+      /*
+       * The rounded square the animation is seen through.
+       *
+       * `overflow: hidden` plus a radius is what crops the video's corners.
+       * `isolation: isolate` forces the element onto its own compositing layer,
+       * without which Chromium composites video straight past a parent's
+       * border-radius and the corners come back square.
+       */
+      #stage {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        border-radius: var(--splash-radius);
+        isolation: isolate;
+        background: #0c0c0d;
+        opacity: 0;
+        transition: opacity 260ms cubic-bezier(0.32, 0.72, 0, 1);
+      }
+
+      /* Revealed once the first frame is decoded, so the window never flashes
+         an empty rectangle before playback starts. */
+      #stage[data-ready='true'] {
+        opacity: 1;
+      }
+
+      /*
+       * `cover` crops rather than fits, which is the intent here.
+       *
+       * The source is 1280x720 and the window is square. `cover` scales the
+       * video until it fills the square — driven by the shorter axis, the
+       * height — and the excess width is cut evenly from the left and right.
+       * The full height is kept and nothing is letterboxed or squashed.
+       *
+       * The radius is repeated on the element as well as the container because
+       * a promoted video layer is not always clipped by its parent.
+       */
+      video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: var(--splash-radius);
+        display: block;
+      }
+
+      /*
+       * Shown only if the application is genuinely slow to become ready — the
+       * video has finished and we are still waiting. It is deliberately not a
+       * spinner on every launch.
+       */
+      #waiting {
+        position: fixed;
+        left: 50%;
+        bottom: 22px;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 5px;
+        opacity: 0;
+        transition: opacity 400ms ease;
+      }
+
+      #waiting[data-visible='true'] {
+        opacity: 1;
+      }
+
+      #waiting span {
+        width: 4px;
+        height: 4px;
+        border-radius: 999px;
+        background: hsl(240 4% 52%);
+        animation: breathe 1.4s ease-in-out infinite;
+      }
+
+      #waiting span:nth-child(2) {
+        animation-delay: 0.18s;
+      }
+      #waiting span:nth-child(3) {
+        animation-delay: 0.36s;
+      }
+
+      @keyframes breathe {
+        0%,
+        100% {
+          opacity: 0.25;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #stage,
+        #waiting {
+          transition: none;
+        }
+        #waiting span {
+          animation: none;
+          opacity: 0.7;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      No `controls`, no `poster`, no right-click surface. `muted` is what makes
+      autoplay permissible without a user gesture; `playsinline` keeps mobile
+      webviews from promoting it to a native fullscreen player.
+    -->
+    <div id="stage">
+      <video id="clip" src="start.mp4" muted playsinline preload="auto" disablepictureinpicture></video>
+    </div>
+
+    <div id="waiting" aria-hidden="true"><span></span><span></span><span></span></div>
+
+    <script src="splash.js"></script>
+  </body>
+</html>

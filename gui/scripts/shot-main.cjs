@@ -172,9 +172,44 @@ async function reload(win) {
 
 async function capture(win, name) {
   const image = await win.webContents.capturePage();
+  /*
+   * An empty capture is a failure, not a screenshot.
+   *
+   * `capturePage()` returns a 0x0 image when there is no compositor — a headless
+   * session, a CI box, a remote shell. Every file then written is zero bytes, the
+   * run reports success, and the stale PNGs from the last good run sit in the
+   * directory looking like evidence. Fail loudly instead; `npm run audit:ui`
+   * measures the DOM and needs no display.
+   */
+  if (image.isEmpty()) {
+    throw new Error(
+      `capturePage returned an empty image for "${name}" — this session has no ` +
+        'compositor, so visual capture is impossible here. Use `npm run audit:ui`.'
+    );
+  }
   const file = path.join(SHOT_DIR, `${name}.png`);
   writeFileSync(file, image.toPNG());
   console.log(`  captured ${name}.png`);
+}
+
+/**
+ * Answer the permission dialog, so navigation is possible again.
+ *
+ * The scripted turn deliberately ends on a blocking request, and since the
+ * permission dialog became application-modal it covers the sidebar too — which
+ * is correct behaviour (the engine is blocked app-wide) and which stranded this
+ * harness mid-run once it started posing that state.
+ */
+async function dismissPermission(win) {
+  const clicked = await realClick(
+    win,
+    '[...document.querySelectorAll(\'[role="dialog"] button\')].find((b) => b.textContent.trim() === "Deny")'
+  );
+  if (clicked) {
+    await waitFor(win, 'the permission dialog to close', '!document.querySelector(\'[role="dialog"]\')');
+    await sleep(300);
+  }
+  return clicked;
 }
 
 /**
@@ -210,12 +245,13 @@ async function seed(win, theme, overrides = {}) {
     enabledLenses: null,
     devForceFirstRun: false,
     onboardingStarted: false,
+    defaultMemoryScope: 'business',
     ...overrides,
   };
   await win.webContents.executeJavaScript(`
     localStorage.setItem('eis-cockpit-ui', JSON.stringify({
       state: ${JSON.stringify(state)},
-      version: 2
+      version: 3
     }));
     true;
   `);
@@ -278,7 +314,7 @@ function registerHarnessIpc(getWindow) {
     electronVersion: process.versions.electron,
     platform: process.platform,
     isDev: false,
-    repositoryUrl: 'https://github.com/bhargav-patnaik01/AI-Council',
+    repositoryUrl: 'https://github.com/bhargav-patnaik01/DWIGI',
     forceFirstRun: false,
   }));
   ipcMain.handle('host:selectDirectory', () => null);
@@ -307,7 +343,7 @@ function registerHarnessIpc(getWindow) {
   ipcMain.handle('advisor:close', () => {});
   ipcMain.handle('advisor:respondToPermission', () => {});
   ipcMain.handle('advisor:diagnostics', () => ({
-    transportVersion: 'v1',
+    transportVersion: 'v2',
     connected: true,
     sessionId: 'shot-session-0001',
     workspacePath: WORKSPACE,
@@ -338,15 +374,15 @@ function registerHarnessIpc(getWindow) {
     });
     // Fixture paths are workspace-relative so no capture ships a drive letter.
     const record = path.join(WORKSPACE, 'journal', 'DEC-20260728_pricing.md');
+    // A live, blocking request — the engine is stopped until it is answered.
+    // `turn-complete` deliberately does NOT follow: the screenshot captures the
+    // dialog as the founder actually meets it, mid-turn.
     send('advisor:event', {
-      kind: 'permission-denied', turnId, requestId: 'r1', tool: 'Write',
-      summary: `Claude requested permissions to write to ${record}, but you haven't granted it yet.`,
+      kind: 'permission-request', turnId, requestId: 'r1', tool: 'Write',
+      summary: 'Writing DEC-20260728_pricing.md',
       targets: [record],
       category: 'write',
-    });
-    send('advisor:event', {
-      kind: 'turn-complete', turnId,
-      stats: { durationMs: 8421, costUsd: 0.19, turns: 1 },
+      detail: '# Decision Record — Pricing\n\n**Status**: Committed\n',
     });
     return { turnId };
   });
@@ -567,6 +603,15 @@ app.whenReady().then(async () => {
   );
   await sleep(600);
   await capture(win, 'chat-conversation');
+
+  // The blocking dialog, as the founder meets it: mid-turn, over everything.
+  await waitFor(win, 'the permission dialog', 'document.querySelector(\'[role="dialog"]\')');
+  await sleep(300);
+  await capture(win, 'permission-dialog');
+
+  // Answered, so the rest of the run can navigate. The modal covers the sidebar
+  // by design, so leaving it open strands every capture after this one.
+  console.log(`  permission dismissed: ${await dismissPermission(win)}`);
 
   // Decision detail: exercises markdown, tables, and the front-matter grid.
   await goto('Decisions');

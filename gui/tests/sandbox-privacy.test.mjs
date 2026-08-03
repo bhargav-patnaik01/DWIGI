@@ -62,7 +62,12 @@ function fakeRepo() {
     `# Business Memory\n\nrunway_months: ${SECRET}\n`,
     'utf8'
   );
-  writeFileSync(path.join(root, 'core', 'executive_matrix.md'), '# Executive Matrix\n', 'utf8');
+  mkdirSync(path.join(root, 'core', 'executives'), { recursive: true });
+  writeFileSync(
+    path.join(root, 'core', 'executives', 'ceo.md'),
+    '---\nid: ceo\ndisplay_name: CEO\n---\n\n**Objective:** Strategy.\n',
+    'utf8'
+  );
   writeFileSync(path.join(root, 'core', 'calibration_journal.md'), '# Calibration\n', 'utf8');
   writeFileSync(
     path.join(root, 'core', 'onboarding', 'memory_protocol.md'),
@@ -117,8 +122,8 @@ test('the real business memory is never copied into a sandbox', () => {
     // test of the exclusion rather than of a generator that copied nothing.
     assert.ok(existsSync(path.join(target, 'CLAUDE.md')), 'CLAUDE.md should be copied');
     assert.ok(
-      existsSync(path.join(target, 'core', 'executive_matrix.md')),
-      'the executive matrix should be copied'
+      existsSync(path.join(target, 'core', 'executives', 'ceo.md')),
+      'the executive definitions should be copied'
     );
 
     // The founder's value must appear in no file in the sandbox, whatever its name.

@@ -24,11 +24,11 @@ import type {
   CalibrationTable,
   DecisionRecord,
   ExecutiveLens,
-  ExecutiveMatrix,
+  ExecutiveRouting,
   MemoryField,
   MemorySection,
 } from '../../shared/repo';
-import { lensIdFromName } from '../../shared/runtime-modes';
+import { isLensId } from '../../shared/runtime-modes';
 import {
   extractSections,
   extractTables,
@@ -160,23 +160,6 @@ export function projectDecisionRecord(
 
 /* ----------------------------------------------------------------- executives */
 
-/**
- * `## 7. Risk Officer — Downside *(S5, structural)*`
- *
- * Ordinal, name, and subtitle. The em dash is the file's separator; a plain
- * hyphen is accepted too so a hand-edit does not drop a lens off the board.
- */
-const LENS_HEADING = /^(\d+)\.\s*(.+?)\s+(?:—|--|-)\s+(.+)$/;
-
-/**
- * The heading marker that declares a lens structural at S5.
- *
- * Matched as literal text from the file rather than inferred from the lens's
- * name. If the matrix stops marking a lens this way, the interface stops
- * treating it as one — which is the correct direction for the dependency to run.
- */
-const STRUCTURAL_MARKER = /\(\s*S5\s*,\s*structural\s*\)/i;
-
 /** `**Objective:** …` — a bold label at the start of a line. */
 const FIELD_LABEL = /^\*\*(.+?):\*\*\s*(.*)$/;
 
@@ -225,43 +208,145 @@ function extractLabelledFields(body: string): Record<string, string> {
 }
 
 /**
- * Parse `core/executive_matrix.md` into the canonical lens roster.
+ * Parse one file from `core/executives/` into a lens.
  *
- * Only numbered `## N. Name — Role` sections are lenses. The file's explanatory
- * chapters — *How to use this file*, *Field schema* — carry no ordinal and are
- * skipped structurally rather than by title matching, so a new prose chapter
- * cannot accidentally appear on the Executive Board as a ninth executive.
+ * ---------------------------------------------------------------------------
+ * FRONT MATTER IS THE ONLY AUTHORITY FOR IDENTITY
+ * ---------------------------------------------------------------------------
+ * `id`, `display_name`, `role`, `structural`, and `ordinal` are read from the
+ * file's own front matter and from nowhere else. The previous parser recovered
+ * all five from a prose heading, which meant identity was a regex result —
+ * rename a lens and its id silently changed underneath every stored
+ * conversation that referenced it.
+ *
+ * Deliberately no fallback to a heading, a filename, or a derived id. A file
+ * that does not declare who it is returns null and is reported as skipped,
+ * because the alternative is a lens displayed under an identity the cockpit
+ * invented for it.
+ *
+ * Returns null rather than throwing: an unreadable executive is an ordinary
+ * state for a directory a founder can edit, and one bad file must not take the
+ * whole board down.
  */
-export function projectExecutiveMatrix(source: string): ExecutiveMatrix {
-  const lenses: ExecutiveLens[] = [];
+export function projectExecutive(file: string, source: string): ExecutiveLens | null {
+  const { data, body } = parseFrontMatter(source);
+
+  const id = (data.id ?? '').trim();
+  const name = (data.display_name ?? '').trim();
+  // Validated against the same predicate the transport uses, because this value
+  // becomes a `/lens` argument. An id that cannot be transmitted must never be
+  // displayed as though it could.
+  if (!isLensId(id) || name.length === 0) return null;
+
+  const ordinal = Number.parseInt((data.ordinal ?? '').trim(), 10);
+
+  return {
+    id,
+    name,
+    role: (data.role ?? '').trim(),
+    // Participation is not this file's to declare any more (ADR-012). Both of
+    // these are filled from the manifest by the reader, which joins on `id`.
+    structural: false,
+    routing: null,
+    // Undeclared order sorts last rather than first, so a file that forgets its
+    // ordinal cannot silently displace the CEO at the top of the board.
+    ordinal: Number.isFinite(ordinal) ? ordinal : Number.MAX_SAFE_INTEGER,
+    file,
+    fields: extractLabelledFields(body),
+  };
+}
+
+/* ------------------------------------------------------------------ manifest */
+
+/**
+ * `### cfo` — a lens entry. The id is the whole heading, nothing else.
+ *
+ * Deliberately strict: no display name beside it, because that would be a second
+ * copy of something the persona file already declares.
+ */
+const MANIFEST_ENTRY = /^([a-z][a-z0-9]*(?:-[a-z0-9]+)*)$/;
+
+/** `## 3. Challenge lenses` — a group heading. */
+const CHALLENGE_GROUP = /challenge/i;
+const CONSTRUCTIVE_GROUP = /constructive/i;
+
+/**
+ * Parse `core/executive_manifest.md` into participation metadata.
+ *
+ * ---------------------------------------------------------------------------
+ * GROUPING IS STRUCTURAL, NOT A FIELD
+ * ---------------------------------------------------------------------------
+ * A lens is a challenge lens because it sits under the challenge section, not
+ * because anything says `structural: true`. That keeps the manifest's own
+ * organisation and its data from disagreeing — there is nothing to disagree
+ * with.
+ *
+ * An entry outside any recognised group is skipped rather than defaulted.
+ * Guessing "constructive" would put a challenge lens into Agent Management as a
+ * toggle the engine would ignore, which is precisely the deceptive switch the
+ * interface refuses to show.
+ */
+export function projectManifest(source: string): {
+  routing: Map<string, ExecutiveRouting>;
+  structural: Set<string>;
+  malformed: string[];
+} {
+  const routing = new Map<string, ExecutiveRouting>();
+  const structural = new Set<string>();
+  const malformed: string[] = [];
+
+  let group: 'constructive' | 'challenge' | null = null;
 
   for (const section of extractSections(source)) {
-    const heading = LENS_HEADING.exec(section.title.trim());
-    if (!heading) continue;
+    const title = section.title.trim();
 
-    const ordinal = Number.parseInt(heading[1] ?? '', 10);
-    const name = (heading[2] ?? '').trim();
-    const subtitle = (heading[3] ?? '').trim();
-    if (!Number.isFinite(ordinal) || name.length === 0) continue;
+    if (section.level <= 2) {
+      const heading = title.replace(/^\d+\.\s*/, '');
+      group = CHALLENGE_GROUP.test(heading)
+        ? 'challenge'
+        : CONSTRUCTIVE_GROUP.test(heading)
+          ? 'constructive'
+          : null;
+      continue;
+    }
 
-    const structural = STRUCTURAL_MARKER.test(subtitle);
+    if (section.level !== 3) continue;
+    if (!MANIFEST_ENTRY.test(title)) continue;
 
-    lenses.push({
-      id: lensIdFromName(name),
-      name,
-      // Strip the structural marker and any emphasis wrapping it left behind.
-      role: subtitle.replace(STRUCTURAL_MARKER, '').replace(/\*+/g, '').trim(),
-      structural,
-      ordinal,
-      fields: extractLabelledFields(section.body),
-    });
+    // An entry that is not under a group has no stage, and stage decides whether
+    // the interface may offer a toggle. Reported, never assumed.
+    if (group === null) {
+      malformed.push(`${title} (not under a constructive or challenge heading)`);
+      continue;
+    }
+
+    const fields = extractLabelledFields(section.body);
+    const activates = fields['Activates when'] ?? '';
+    const suppressed = fields['Suppressed when'] ?? '';
+    const escalates = fields['Escalates when'] ?? '';
+
+    // All three are required. A partial entry cannot be gated on, and a lens the
+    // gate cannot evaluate must not read as one it can.
+    if (!activates || !suppressed || !escalates) {
+      const missing = [
+        !activates && 'Activates when',
+        !suppressed && 'Suppressed when',
+        !escalates && 'Escalates when',
+      ].filter(Boolean);
+      malformed.push(`${title} (missing ${missing.join(', ')})`);
+      continue;
+    }
+
+    if (routing.has(title)) {
+      malformed.push(`${title} (duplicate entry)`);
+      continue;
+    }
+
+    routing.set(title, { activates, suppressed, escalates });
+    if (group === 'challenge') structural.add(title);
   }
 
-  // The file's own numbering is the canonical order. Sorting by it rather than
-  // trusting document order means a reordered file still presents consistently.
-  lenses.sort((a, b) => a.ordinal - b.ordinal);
-
-  return { lenses };
+  return { routing, structural, malformed };
 }
 
 /* ---------------------------------------------------------------- calibration */

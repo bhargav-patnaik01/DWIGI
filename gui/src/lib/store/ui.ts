@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { DEFAULT_MEMORY_SCOPE, readMemoryScope, type MemoryScope } from '@shared/runtime-modes';
 
 export type Theme = 'dark' | 'light';
 
@@ -32,8 +33,8 @@ interface UiState {
    * transmitted.
    *
    * Ids only. No persona text, no role description, no reasoning hint. The
-   * definitions live in `core/executive_matrix.md`, and storing anything beyond
-   * an identifier here would start a second copy of them.
+   * definitions live in `core/executives/`, and storing anything beyond an
+   * identifier here would start a second copy of them.
    */
   enabledLenses: string[] | null;
 
@@ -60,6 +61,24 @@ interface UiState {
    */
   onboardingStarted: boolean;
 
+  /**
+   * Scope the **next** conversation will be created with.
+   *
+   * ---------------------------------------------------------------------------
+   * A SETTING FOR THE NEXT ONE, NEVER A PROPERTY OF THE CURRENT ONE
+   * ---------------------------------------------------------------------------
+   * Nothing reads this to decide how an existing conversation behaves. The scope
+   * a conversation runs under is read back from its own stored record
+   * (`ConversationSummary.mode.memory`), which was written once at creation.
+   *
+   * Keeping the two apart is the whole of the immutability guarantee. If any
+   * screen resolved the active conversation's scope from this value, flipping
+   * the toggle would retroactively change every conversation in the history —
+   * silently, and in the direction most likely to matter, since a Business
+   * thread re-answering without the founder's company reads as amnesia.
+   */
+  defaultMemoryScope: MemoryScope;
+
   setTheme(theme: Theme): void;
   toggleTheme(): void;
   setWorkspacePath(path: string | null): void;
@@ -68,6 +87,7 @@ interface UiState {
   setEnabledLenses(ids: string[] | null): void;
   setDevForceFirstRun(value: boolean): void;
   markOnboardingStarted(): void;
+  setDefaultMemoryScope(scope: MemoryScope): void;
 }
 
 /**
@@ -90,6 +110,7 @@ export const useUi = create<UiState>()(
       enabledLenses: null,
       devForceFirstRun: false,
       onboardingStarted: false,
+      defaultMemoryScope: DEFAULT_MEMORY_SCOPE,
 
       setTheme: (theme) => set({ theme }),
       toggleTheme: () => set({ theme: get().theme === 'dark' ? 'light' : 'dark' }),
@@ -101,10 +122,15 @@ export const useUi = create<UiState>()(
       setEnabledLenses: (enabledLenses) => set({ enabledLenses }),
       setDevForceFirstRun: (devForceFirstRun) => set({ devForceFirstRun }),
       markOnboardingStarted: () => set({ onboardingStarted: true }),
+      // Normalised on the way in: this value ends up composing a directive, and a
+      // malformed one must never be able to strip a founder's company from advice
+      // they are reading as though it were about them.
+      setDefaultMemoryScope: (scope) =>
+        set({ defaultMemoryScope: readMemoryScope(scope) }),
     }),
     {
       name: 'eis-cockpit-ui',
-      version: 2,
+      version: 3,
       // Only these keys survive a restart. Anything derived is recomputed.
       partialize: (state) => ({
         theme: state.theme,
@@ -114,6 +140,7 @@ export const useUi = create<UiState>()(
         enabledLenses: state.enabledLenses,
         devForceFirstRun: state.devForceFirstRun,
         onboardingStarted: state.onboardingStarted,
+        defaultMemoryScope: state.defaultMemoryScope,
       }),
       /**
        * A v1 store predates every field added here.
@@ -124,9 +151,16 @@ export const useUi = create<UiState>()(
        */
       migrate: (persisted, version) => {
         const state = (persisted ?? {}) as Partial<UiState>;
-        if (version >= 2) return state as UiState;
-        return {
+        // v3 added the memory scope. Every stored conversation predating it was
+        // created before Executive Learning existed, so Business is not a fallback
+        // here — it is what those installations actually were.
+        const scoped = {
           ...state,
+          defaultMemoryScope: readMemoryScope(state.defaultMemoryScope),
+        };
+        if (version >= 2) return scoped as UiState;
+        return {
+          ...scoped,
           noticeDismissed: false,
           enabledLenses: null,
           devForceFirstRun: false,

@@ -1,6 +1,6 @@
 {
   "name": "eis-cockpit",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "license": "MIT",
   "description": "D.W.I.G.I — local-first desktop cockpit for the Executive Intelligence System. Presentation layer only — performs no reasoning.",
@@ -12,11 +12,12 @@
   "scripts": {
     "dev:web": "next dev",
     "dev": "concurrently -k -n next,electron -c cyan,magenta \"next dev\" \"npm:dev:electron\"",
-    "dev:electron": "wait-on tcp:3000 && npm run prepare:icon && npm run build:electron && cross-env EIS_DEV=1 electron .",
+    "dev:electron": "wait-on tcp:3000 && npm run prepare:icon && npm run prepare:splash && npm run build:electron && cross-env EIS_DEV=1 electron .",
     "build:electron": "tsc -p tsconfig.electron.json",
-    "build:next": "next build",
+    "build:next": "next build && node scripts/csp-hashes.mjs",
     "prepare:icon": "node scripts/prepare-icon.mjs",
-    "build": "npm run prepare:icon && npm run build:next && npm run build:electron",
+    "prepare:splash": "node scripts/prepare-splash.mjs",
+    "build": "npm run prepare:icon && npm run prepare:splash && npm run build:next && npm run build:electron",
     "start": "cross-env NODE_ENV=production electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "lint": "next lint",
@@ -27,6 +28,8 @@
     "validate:modes": "npm run build:electron && node scripts/validate-modes.mjs",
     "test": "npm run build:electron && node --test tests/*.test.mjs",
     "screenshots": "node scripts/screenshots.mjs",
+    "audit:ui": "npm run build:electron && electron scripts/audit-ui.cjs",
+    "benchmark": "node scripts/benchmark-pipelines.mjs",
     "package": "npm run build && electron-builder --dir",
     "package:installer": "npm run build && electron-builder"
   },
@@ -60,6 +63,8 @@
   "author": {
     "name": "Bhargav Patnaik"
   },
+  "//build": "Comment keys must NOT go inside the build object below. npm ignores unknown top-level keys, which is why //dependencies works, but electron-builder validates its build field against a strict schema and aborts on any property it does not recognise. Notes about build settings belong here instead.",
+  "//build.extraResources": "main.ts resolveWindowIcon() looks for icon.png beside the app resources. Windows takes its window icon from the stamped executable and macOS from the .icns, but a packaged Linux build had neither and fell back to Electron's default icon. This is the file that lookup expects.",
   "build": {
     "appId": "com.dwigi.app",
     "productName": "D.W.I.G.I",
@@ -71,6 +76,12 @@
     "extraMetadata": {
       "main": "dist-electron/electron/main.js"
     },
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
+    ],
     "directories": {
       "output": "release",
       "buildResources": "build"

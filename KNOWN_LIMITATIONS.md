@@ -1,4 +1,4 @@
-# Known limitations — v1.0.0
+# Known limitations — v1.0.1
 
 Everything here is observed, not speculative. This is V1 and under active development; the list is meant to set expectations honestly rather than to look short.
 
@@ -30,6 +30,8 @@ Signing status: **UNSIGNED**. This is a deliberate decision for V1, not a defect
 - **Four financial fields can never be inferred**: cash position, runway, monthly burn, and revenue. They come from you or stay unknown. Advice that would depend on them is capped in confidence until you supply them.
 - **Routing thresholds are Version 1 heuristics.** The domain routing table and the Existential budget triggers were derived analytically, not from observed founder decisions, and are scheduled for behavioural validation. They are documented as such in `docs/DECISIONS.md`.
 - **Calibration requires review to be useful.** The system records predictions with dates; scoring them happens when you conduct a review. Until then the calibration ledger is empty, which is the correct state for a new installation rather than a fault.
+- **The context bound in ADR-007 is breached, and is left that way deliberately.** A Full deliberation reads up to 12 files against a stated bound of 6. ADR-012 reduced the peak from 13 by loading a lens's reasoning only after the gate admits it, but the routing base alone is 6 files, so any deliberation with two or more lenses exceeds the bound. The criterion is arithmetically unreachable while executives are separate files. `docs/validation/check-references.sh` reports this as a failure on purpose rather than raising the bound to make it disappear; ADR-012 carries the measured numbers and the recommendation.
+- **`/deliberate-isolated` is experimental.** It changes execution only — every routed lens reasons in its own context — and exists so the anchoring question can be measured rather than argued. It is not the default and not a replacement for `/deliberate`. Whether it produces better deliberation is genuinely unestablished; `docs/validation/BENCHMARK.md` states which classes of claim its harness can settle and which it cannot.
 
 ---
 

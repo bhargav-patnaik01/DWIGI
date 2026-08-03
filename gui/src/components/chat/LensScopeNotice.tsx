@@ -30,7 +30,7 @@ export function LensScopeNotice({ lensName, onReturnToCouncil, busy }: LensScope
     <div className="border-b border-accent/20 bg-accent/[0.05] px-5 py-2.5">
       <div className="mx-auto flex max-w-reading items-start gap-2.5">
         <User className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={2} />
-        <p className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-muted">
+        <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-muted">
           You are speaking directly with the{' '}
           <span className="font-medium text-ink">{lensName}</span> perspective. The rest of
           the Executive Council is not engaged, so this answer is shaped by one mandate and

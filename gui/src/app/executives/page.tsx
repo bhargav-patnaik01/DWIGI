@@ -19,10 +19,10 @@ import { cn } from '@/lib/utils';
  * ---------------------------------------------------------------------------
  * THE HARD RULE THIS SCREEN OBEYS
  * ---------------------------------------------------------------------------
- * Every word of every card comes out of `core/executive_matrix.md`. There is no
- * roster in this file, no role blurb, no invented mandate. A lens the matrix does
- * not define cannot appear here, and if the matrix is unreadable the screen says
- * so rather than falling back to something plausible.
+ * Every word of every card comes out of a file in `core/executives/`. There is
+ * no roster in this file, no role blurb, no invented mandate. A lens with no
+ * definition file cannot appear here, and if the directory is unreadable the
+ * screen says so rather than falling back to something plausible.
  *
  * ---------------------------------------------------------------------------
  * AND THE ONE IT REFUSES TO BREAK
@@ -44,7 +44,8 @@ export default function ExecutivesPage() {
   const startNew = useConversations((s) => s.startNew);
   const status = useChat((s) => s.status);
 
-  const { all, constructive, structural, enabled, isDefault, unavailable } = useCouncilConfig();
+  const { all, constructive, structural, enabled, isDefault, unavailable, skipped, manifestError, orphanedEntries } =
+    useCouncilConfig();
 
   // Mirrors the store's own guard. A turn in flight would land on whichever
   // transcript loaded next, so the conversation cannot change until it finishes.
@@ -107,7 +108,7 @@ export default function ExecutivesPage() {
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-reading px-5 py-6">
           {unavailable ? (
-            <Unavailable label="Executive matrix" reason={unavailable} />
+            <Unavailable label="Executive definitions" reason={unavailable} />
           ) : (
             <>
               <p className="text-[13px] leading-relaxed text-muted">
@@ -116,6 +117,44 @@ export default function ExecutivesPage() {
                 actually needs and returns a single recommendation — not a panel of
                 opinions.
               </p>
+
+              {/* A board missing a member says so. The alternative — rendering the
+                  executives that did parse and staying quiet about the one that
+                  did not — shows a complete-looking board that is not complete,
+                  and nothing on screen would let the founder notice. */}
+              {skipped.length > 0 && (
+                <p className="mt-3 rounded-xl border border-caution/30 bg-caution/5 px-3.5 py-2.5 text-[13px] leading-relaxed text-muted">
+                  {skipped.length === 1 ? 'One executive definition' : `${skipped.length} executive definitions`}{' '}
+                  in <span className="font-mono">core/executives/</span> could not be read and
+                  {skipped.length === 1 ? ' is' : ' are'} missing from this board:{' '}
+                  <span className="font-mono text-2xs">{skipped.join(', ')}</span>. The advisor
+                  reads the same directory, so this affects deliberation and not just display.
+                </p>
+              )}
+
+              {/* Grouping below comes from the manifest. Without it every lens
+                  reads as constructive, so the split shown would be wrong — say
+                  that outright rather than presenting a confident wrong board. */}
+              {manifestError && (
+                <p className="mt-3 rounded-xl border border-caution/30 bg-caution/5 px-3.5 py-2.5 text-[13px] leading-relaxed text-muted">
+                  Participation metadata could not be read from{' '}
+                  <span className="font-mono">core/executive_manifest.md</span>: {manifestError}.
+                  The executives below are correct, but the split between constructive and
+                  challenge lenses is not, and Agent Management is unavailable until this is
+                  fixed.
+                </p>
+              )}
+
+              {orphanedEntries.length > 0 && (
+                <p className="mt-3 rounded-xl border border-caution/30 bg-caution/5 px-3.5 py-2.5 text-[13px] leading-relaxed text-muted">
+                  The manifest routes{' '}
+                  <span className="font-mono text-2xs">{orphanedEntries.join(', ')}</span>, which
+                  {orphanedEntries.length === 1 ? ' has' : ' have'} no definition file. The
+                  advisor can admit{' '}
+                  {orphanedEntries.length === 1 ? 'this executive' : 'these executives'} to a
+                  deliberation and then find nothing to load.
+                </p>
+              )}
 
               <Section
                 title="Constructive lenses"
@@ -154,8 +193,8 @@ export default function ExecutivesPage() {
                 </Section>
               )}
 
-              <p className="mt-8 text-[12.5px] leading-relaxed text-faint">
-                Read from <span className="font-mono">core/executive_matrix.md</span>. This
+              <p className="mt-8 text-[13px] leading-relaxed text-faint">
+                Read from <span className="font-mono">core/executives/</span>. This
                 screen shows how the board is configured. It does not report which lenses
                 ran on any particular decision — the cockpit is not told, and will not
                 guess. Ask the advisor to stress-test a recommendation to see its real
@@ -181,7 +220,7 @@ function Section({
   return (
     <section className="mt-7">
       <h2 className="text-[13px] font-semibold tracking-tight text-ink">{title}</h2>
-      <p className="mt-1 text-[12.5px] leading-relaxed text-faint">{note}</p>
+      <p className="mt-1 text-[13px] leading-relaxed text-faint">{note}</p>
       <div className="mt-3.5 space-y-2.5">{children}</div>
     </section>
   );
@@ -215,7 +254,11 @@ function LensCard({ lens, engaged, locked, busy, onChat }: LensCardProps) {
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-            <h3 className="text-[13.5px] font-semibold tracking-tight text-ink">{lens.name}</h3>
+            {/* 13px is the chrome step. 13.5px is reserved for reading text —
+                the composer, messages, rendered markdown — and a card title
+                borrowing it put UI type on the prose scale. Weight and tracking
+                carry the hierarchy here instead of half a pixel. */}
+            <h3 className="text-[13px] font-semibold tracking-tight text-ink">{lens.name}</h3>
             <span className="text-2xs text-faint">{lens.role}</span>
           </div>
           {objective && (
@@ -227,7 +270,7 @@ function LensCard({ lens, engaged, locked, busy, onChat }: LensCardProps) {
       </div>
 
       {owns && (
-        <p className="mt-3 border-t border-line pt-3 text-[12.5px] leading-relaxed text-faint">
+        <p className="mt-3 border-t border-line pt-3 text-[13px] leading-relaxed text-faint">
           <span className="text-muted">Owns</span> · {owns}
         </p>
       )}

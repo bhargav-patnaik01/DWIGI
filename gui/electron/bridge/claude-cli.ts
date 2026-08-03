@@ -14,6 +14,11 @@
  * `--bare`. `--bare` in particular would disable CLAUDE.md discovery and
  * decapitate the advisor.
  *
+ * `--permission-prompt-tool stdio` is not an exception to this. It shapes no
+ * prompt and injects no context; it redirects where the runtime asks for
+ * consent, from a terminal it does not have to this process. See
+ * `permission-policy.ts`.
+ *
  * The only context supplied is `cwd`. That is what lets the runtime discover its
  * own operating instructions, and it is why this file needs to know nothing
  * about them.
@@ -41,6 +46,7 @@ import type {
   AdvisorDiagnostics,
   AdvisorEvent,
   AdvisorSessionOptions,
+  PermissionDecision,
 } from '../../shared/advisor';
 import { TRANSPORT_VERSION } from '../../shared/advisor';
 import {
@@ -48,7 +54,8 @@ import {
   DEFAULT_COUNCIL_MODE,
   type RuntimeMode,
 } from '../../shared/runtime-modes';
-import { toAdvisorEvents, type ParserState } from './events';
+import { CONTROL, PERMISSION_PROMPT_TRANSPORT } from './permission-policy';
+import { toAdvisorEvents, type ControlRequestSighting, type ParserState } from './events';
 
 const execFileAsync = promisify(execFile);
 
@@ -93,9 +100,17 @@ function assertArgsAreShellSafe(args: readonly string[]): void {
 
 export type Emit = (event: AdvisorEvent) => void;
 
-interface PendingGrant {
-  tool: string;
+/**
+ * A control request the engine is currently blocked on.
+ *
+ * Held against the child that raised it. A late answer arriving after that
+ * child is gone must not be written to a successor process, which would be
+ * answering a question the new process never asked.
+ */
+interface PendingRequest {
   requestId: string;
+  toolUseId: string | null;
+  child: ChildProcessWithoutNullStreams;
 }
 
 /**
@@ -140,13 +155,23 @@ export class ClaudeCliRuntime {
   private runtimeVersion: string | null = null;
 
   /**
-   * Tools the user has approved for the NEXT attempt, keyed by requestId.
+   * Control requests the engine is blocked on, keyed by its own request id.
    *
-   * Populated only by an explicit user decision. See permission-policy.ts for
-   * why post-hoc approval is the only mechanism available.
+   * Every entry here is a stopped runtime. The invariant that matters is not
+   * that this map is small but that it always drains: `resolveOutstanding` is
+   * called from every path that ends a turn, so a request can never outlive the
+   * process that raised it (contract invariant 6).
    */
-  private grants = new Map<string, PendingGrant>();
-  private allowedTools = new Set<string>();
+  private pending = new Map<string, PendingRequest>();
+
+  /**
+   * Tool calls this cockpit answered during the current turn.
+   *
+   * Read by the parser to suppress a duplicate denial notice for a refusal the
+   * founder already made themselves. Cleared per turn, not per request, because
+   * the tool result arrives well after the answer.
+   */
+  private adjudicated = new Set<string>();
 
   /**
    * Whether the engine already holds a session under `sessionId`.
@@ -221,6 +246,8 @@ export class ClaudeCliRuntime {
     this.recoveryAttempted = false;
     this.sawTerminalResult = false;
     this.turnStderr = '';
+    this.pending.clear();
+    this.adjudicated.clear();
 
     await this.detectVersion();
     this.processState = 'stopped';
@@ -244,20 +271,26 @@ export class ClaudeCliRuntime {
       throw new Error('open() must be called before send()');
     }
 
+    /*
+     * `--permission-prompt-tool stdio` is the whole of native consent.
+     *
+     * It routes every permission decision to this process as a `can_use_tool`
+     * control request on stdout, and blocks the engine until a matching
+     * `control_response` arrives on stdin. Nothing else here pre-approves
+     * anything: there is deliberately no `--allowedTools`, no
+     * `--permission-mode`, and no settings injection. The runtime's own rules
+     * decide what needs asking; we only answer.
+     */
     const args = [
       '-p',
       '--input-format', 'stream-json',
       '--output-format', 'stream-json',
       '--verbose',
       '--include-partial-messages',
+      '--permission-prompt-tool', PERMISSION_PROMPT_TRANSPORT,
       resume ? '--resume' : '--session-id',
       this.sessionId,
     ];
-
-    // Only tools the user explicitly approved, and only while a grant is live.
-    if (this.allowedTools.size > 0) {
-      args.push('--allowedTools', [...this.allowedTools].join(' '));
-    }
 
     this.processState = 'starting';
 
@@ -275,10 +308,24 @@ export class ClaudeCliRuntime {
     });
 
     child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => this.onStdout(chunk));
+    child.stdout.on('data', (chunk: string) => {
+      /*
+       * `stdoutBuffer` is shared across children, so a superseded child writing
+       * into it would interleave two NDJSON streams — producing a line that is
+       * the tail of one turn spliced onto the head of another, and parsing as
+       * neither. Its bytes are dropped rather than reassigned: the turn they
+       * belonged to has already been reported complete.
+       */
+      if (this.child !== child) return;
+      this.onStdout(chunk);
+    });
 
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk: string) => {
+      // A superseded child's diagnostics belong to a turn that is over. Shown
+      // against the live turn they would read as a fault in what the founder is
+      // currently waiting on.
+      if (this.child !== child) return;
       // Retained for classification at exit. Capped so a runaway child cannot
       // grow this without bound.
       if (this.turnStderr.length < 8192) this.turnStderr += chunk;
@@ -305,6 +352,10 @@ export class ClaudeCliRuntime {
     });
 
     child.on('error', (error) => {
+      // Same rule as `exit`: a superseded child must not report against the
+      // turn that replaced it. A fatal error raised here would kill a healthy
+      // turn on behalf of a process nobody is waiting on.
+      if (this.child !== child) return;
       this.processState = 'exited';
       this.emit({
         kind: 'error',
@@ -315,6 +366,40 @@ export class ClaudeCliRuntime {
     });
 
     child.on('exit', (code) => {
+      /*
+       * A dead process cannot answer, so nothing may still be waiting on it.
+       * This is the deadlock guard: without it, a runtime that crashes while
+       * the founder has a dialog open leaves that dialog on screen forever,
+       * addressed to a process that no longer exists.
+       *
+       * Done first, and for any child, because it concerns only that child's
+       * own requests.
+       */
+      this.discardOutstanding(child);
+
+      /*
+       * ---------------------------------------------------------------------
+       * A SUPERSEDED CHILD MAY NOT TOUCH SHARED STATE
+       * ---------------------------------------------------------------------
+       * `exit` is asynchronous, so an abandoned child's event can arrive after
+       * its replacement has already spawned. Everything below this line is
+       * about *the current turn*, and running it on behalf of a dead
+       * predecessor corrupts the live one in two ways:
+       *
+       *   - `this.child = null` would drop the reference to the RUNNING child.
+       *     `cancel()` and `close()` both begin `if (!this.child) return`, so
+       *     the live process would become unkillable and leak — permanently,
+       *     since stdin is deliberately held open for the whole turn.
+       *   - `flushBuffer()` would push the dead child's trailing bytes through
+       *     the parser under the new turn's id, attributing one turn's output
+       *     to another.
+       *
+       * Found by a leaked `node` process outliving the test run, not by
+       * reading the code. It became reachable when `send()` started cancelling
+       * an in-flight turn instead of leaving it running.
+       */
+      if (this.child !== child) return;
+
       this.processState = 'exited';
       this.flushBuffer();
       this.child = null;
@@ -327,12 +412,12 @@ export class ClaudeCliRuntime {
 
       if (diedMidFlight && turnId !== null) {
         const recovery = this.recoverSession(turnId);
-        // A respawn owns the turn from here: leave `turnId` and the grants in
-        // place, because the retry is the same turn by another process.
+        // A respawn owns the turn from here: leave `turnId` in place, because
+        // the retry is the same turn by another process.
         if (recovery === 'respawned') return;
 
         this.turnId = null;
-        this.allowedTools.clear();
+        this.adjudicated.clear();
 
         if (recovery === 'none') {
           this.emit({
@@ -346,8 +431,7 @@ export class ClaudeCliRuntime {
       }
 
       this.turnId = null;
-      // Grants are single-use: one approval authorises one attempt.
-      this.allowedTools.clear();
+      this.adjudicated.clear();
     });
 
     this.child = child;
@@ -430,6 +514,28 @@ export class ClaudeCliRuntime {
   ): Promise<{ turnId: string }> {
     if (!this.sessionId) throw new Error('open() must be called before send()');
 
+    /*
+     * A turn already in flight is abandoned explicitly, never left running.
+     *
+     * Holding stdin open for the whole turn — which is what makes native consent
+     * possible — also means an abandoned child never terminates: print mode exits
+     * on end-of-input, and nothing would ever supply it. Before this sprint such
+     * a child closed its own stdin and died on its own, so overlapping sends
+     * leaked nothing; now they would leak a process per send, each still holding
+     * the workspace open.
+     *
+     * Worse than the leak: both children write into one `stdoutBuffer`, so the
+     * abandoned turn's terminal result would be read as the new turn's, closing
+     * the wrong stdin and interleaving two streams into one transcript.
+     *
+     * The interface does not currently allow this — the composer is disabled
+     * mid-turn and the permission dialog is application-modal — so this is a
+     * guard against a caller, not a live fault. It is here because the failure it
+     * prevents is silent, and because "the UI happens not to do that" is not an
+     * invariant the transport can rely on.
+     */
+    if (this.child) await this.cancel();
+
     const turnId = randomUUID();
     this.turnId = turnId;
     /*
@@ -443,6 +549,10 @@ export class ClaudeCliRuntime {
      */
     this.pendingText = composeTurn(text, mode);
     this.recoveryAttempted = false;
+    // Adjudications are per-turn: a tool call answered last turn tells us
+    // nothing about a refusal this turn, and keeping them would suppress a
+    // genuine engine-side denial that happened to reuse an id.
+    this.adjudicated.clear();
 
     // Continue the session if it exists, establish it if it does not. See
     // `sessionEstablished` — this is deliberately not "have we spawned before".
@@ -464,6 +574,22 @@ export class ClaudeCliRuntime {
    * exactly the same code. A recovery that re-encoded the message differently
    * from the original send would be a verbatim-input violation reachable only on
    * a rare path — the worst kind to have.
+   *
+   * ---------------------------------------------------------------------------
+   * STDIN STAYS OPEN. THIS IS THE WHOLE FIX.
+   * ---------------------------------------------------------------------------
+   * The previous implementation called `child.stdin.end()` here, reasoning that
+   * print mode consumes one turn and closing stdin signals end of input. That
+   * is true of the message stream and false of the control stream, which shares
+   * the same pipe in both directions.
+   *
+   * Ending stdin here destroys the channel the engine asks permission on. It
+   * then reports `Tool permission request failed: AbortError: Stream closed`
+   * and falls back to refusing — which is the entire behaviour the old post-hoc
+   * consent policy was built to work around.
+   *
+   * stdin is closed in exactly one place now: `endInput`, on the terminal
+   * result. See `handleLine`.
    */
   private writeTurn(child: ChildProcessWithoutNullStreams, text: string): void {
     // `text` is placed in the message unchanged. No wrapping, no re-encoding.
@@ -473,22 +599,82 @@ export class ClaudeCliRuntime {
       message: { role: 'user', content: [{ type: 'text', text }] },
     };
 
-    child.stdin.write(`${JSON.stringify(message)}\n`);
-    // Print mode processes one turn then exits; closing stdin signals completion
-    // of input. Keeping it open makes the child wait indefinitely.
-    child.stdin.end();
+    this.writeLine(child, message);
+  }
+
+  /**
+   * Write one NDJSON frame, tolerating a pipe that has already gone.
+   *
+   * Every write to the child races its exit: the process can die between the
+   * check and the call. A failed write is reported and swallowed rather than
+   * thrown, because throwing here would cross the transport boundary and
+   * violate contract invariant 5.
+   */
+  private writeLine(child: ChildProcessWithoutNullStreams, frame: unknown): boolean {
+    if (child.stdin.destroyed || child.stdin.writableEnded) return false;
+    try {
+      child.stdin.write(`${JSON.stringify(frame)}\n`);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Signal end of input, once, after the turn has genuinely finished.
+   *
+   * Called on the terminal result rather than after the user message, so the
+   * control channel stays available for the whole turn. The child exits
+   * shortly after this; without it, it would wait for more input forever.
+   */
+  private endInput(child: ChildProcessWithoutNullStreams): void {
+    if (child.stdin.destroyed || child.stdin.writableEnded) return;
+    try {
+      child.stdin.end();
+    } catch {
+      // The child died first. Its exit handler owns cleanup.
+    }
   }
 
   async cancel(): Promise<void> {
     if (!this.child) return;
+    const child = this.child;
     const turnId = this.turnId;
-    this.child.kill();
+
+    /*
+     * Drop outstanding requests BEFORE the kill.
+     *
+     * They are unanswerable either way, but doing it first means the UI is
+     * never briefly showing a dialog for a process that is already dead. This
+     * is what makes "Cancel Turn" a complete escape from a prompt rather than
+     * a way to leave one stranded.
+     */
+    this.discardOutstanding(child);
+
+    /*
+     * End input before killing, so the process tree gets EOF as well as a signal.
+     *
+     * On Windows the runtime is reached through a `.cmd` shim, so `kill()`
+     * terminates the shim and not necessarily what it launched. Measured against
+     * the real CLI 2.1.220, the engine does exit on its own — `claude.exe` count
+     * returned to baseline within three seconds of a cancel — so this is not
+     * fixing an observed leak.
+     *
+     * It is here because that clean exit is a property of the current shim and
+     * the current engine, neither of which this file controls, and because
+     * closing the only write end of the pipe is the one signal that reaches a
+     * grandchild regardless of what sits between. Cheap, and it removes the
+     * dependency on someone else's shutdown behaviour.
+     */
+    this.endInput(child);
+    child.kill();
     this.child = null;
     this.turnId = null;
     // Dropping the retained text is what makes the kill final: without it the
     // child's own exit could be classified as a mid-flight death and resend a
     // turn the founder just interrupted.
     this.pendingText = null;
+    this.adjudicated.clear();
     this.processState = 'stopped';
     if (turnId) {
       this.emit({ kind: 'turn-complete', turnId });
@@ -498,28 +684,146 @@ export class ClaudeCliRuntime {
   async close(): Promise<void> {
     await this.cancel();
     this.stdoutBuffer = '';
-    this.grants.clear();
-    this.allowedTools.clear();
+    this.pending.clear();
+    this.adjudicated.clear();
   }
 
   /* -------------------------------------------------------------- permissions */
 
   /**
-   * Record a decision on a refused action.
+   * Answer a request the engine is blocked on.
    *
-   * `allow` adds the tool to a single-use allowlist for the next attempt. It
-   * cannot retroactively permit the attempt that was already refused — that
-   * request is gone and the advisor has already been told it failed.
+   * The reply is written on the runtime's own correlation token, so `allow`
+   * completes the pending call inside the turn already in flight. There is no
+   * respawn, no retry, and no new turn — the same process continues from where
+   * it stopped.
+   *
+   * Total by construction. An unknown, stale, or double-clicked id resolves to
+   * a no-op rather than an error: the founder pressing a button twice must not
+   * produce a fault, and a second write on a spent token would be answering a
+   * question nobody asked.
    */
-  async respondToPermission(requestId: string, decision: 'allow' | 'deny'): Promise<void> {
-    const grant = this.grants.get(requestId);
-    this.grants.delete(requestId);
-    if (!grant) return;
-    if (decision === 'allow') this.allowedTools.add(grant.tool);
+  async respondToPermission(requestId: string, decision: PermissionDecision): Promise<void> {
+    const request = this.pending.get(requestId);
+    if (!request) return;
+    // Deleted before the write, so a synchronous re-entry cannot answer twice.
+    this.pending.delete(requestId);
+
+    // A late answer to a dead process is dropped rather than written to its
+    // successor, which never asked and would be resolving a stale decision.
+    if (request.child !== this.child) return;
+
+    if (request.toolUseId) this.adjudicated.add(request.toolUseId);
+
+    const body =
+      decision === 'allow'
+        ? { behavior: 'allow' as const, updatedInput: undefined }
+        : {
+            behavior: 'deny' as const,
+            message: 'The founder declined this action.',
+          };
+
+    this.writeControlResponse(request.child, requestId, body);
   }
 
-  registerPendingGrant(requestId: string, tool: string): void {
-    this.grants.set(requestId, { requestId, tool });
+  /**
+   * Write one `control_response`, the only frame that can unblock the engine.
+   *
+   * `updatedInput` is omitted rather than echoed back. The runtime already
+   * holds the input it proposed, and returning a copy would create a second
+   * place where the arguments of a tool call could differ from what the founder
+   * was shown — which is the one thing a permission dialog must never allow.
+   */
+  private writeControlResponse(
+    child: ChildProcessWithoutNullStreams,
+    requestId: string,
+    body: Record<string, unknown>
+  ): void {
+    const payload: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(body)) {
+      if (value !== undefined) payload[key] = value;
+    }
+
+    this.writeLine(child, {
+      type: CONTROL.response,
+      response: { subtype: 'success', request_id: requestId, response: payload },
+    });
+  }
+
+  /**
+   * Note a control request the engine is blocked on, and answer it if we cannot
+   * hand it to the founder.
+   *
+   * Two cases never reach a dialog, and both must still be replied to:
+   *
+   *   - A subtype this bridge does not implement. Silence would hang the turn,
+   *     so it is refused explicitly with a reason the advisor can act on.
+   *   - A malformed `can_use_tool` — no tool name, or no correlation token.
+   *     Asking the founder to authorise an unnamed action would be asking them
+   *     to consent to something nobody can describe, so it is denied.
+   *
+   * Failing closed is deliberate. A request we do not understand is the exact
+   * situation in which guessing "allow" is least defensible.
+   */
+  private noteControlRequest(
+    child: ChildProcessWithoutNullStreams,
+    sighting: ControlRequestSighting
+  ): void {
+    if (sighting.understood) {
+      this.pending.set(sighting.requestId, {
+        requestId: sighting.requestId,
+        toolUseId: sighting.toolUseId,
+        child,
+      });
+      return;
+    }
+
+    if (!sighting.requestId) {
+      // Unanswerable: no token to address a reply to. Say so rather than
+      // pretending the turn is healthy — it is now likely to stall.
+      this.emit({
+        kind: 'runtime-notice',
+        turnId: this.turnId ?? '',
+        severity: 'warning',
+        message:
+          'The advisor sent a request this version of the cockpit cannot answer, ' +
+          'and it carried no reply address. The turn may not finish; cancel it if it stalls.',
+      });
+      return;
+    }
+
+    const reason =
+      sighting.subtype === CONTROL.canUseTool
+        ? 'The cockpit could not read this permission request, so it was refused rather than guessed at.'
+        : `The cockpit does not implement control requests of type "${
+            sighting.subtype || 'unknown'
+          }".`;
+
+    this.writeControlResponse(child, sighting.requestId, {
+      behavior: 'deny',
+      message: reason,
+    });
+
+    this.emit({
+      kind: 'runtime-notice',
+      turnId: this.turnId ?? '',
+      severity: 'warning',
+      message: reason,
+    });
+  }
+
+  /**
+   * Abandon every request raised by a child that can no longer answer.
+   *
+   * Emits a `permission-request` resolution the UI can act on by clearing the
+   * dialog — see the reducer, which drops pending requests on `turn-complete`
+   * and on a fatal error. Nothing is written to the process: it is either dead
+   * or about to be killed.
+   */
+  private discardOutstanding(child: ChildProcessWithoutNullStreams): void {
+    for (const [id, request] of this.pending) {
+      if (request.child === child) this.pending.delete(id);
+    }
   }
 
   /* ------------------------------------------------------------------- stdout */
@@ -561,18 +865,39 @@ export class ClaudeCliRuntime {
       return;
     }
 
+    // Captured before parsing: the parser may report a control request, and the
+    // reply must go to the process that asked, not to whatever `this.child`
+    // happens to be by the time an answer arrives.
+    const child = this.child;
+
     const { events, lastKind } = toAdvisorEvents(raw, {
       turnId: this.turnId ?? '',
       state: this.parserState,
-      registerGrant: (requestId, tool) => this.registerPendingGrant(requestId, tool),
+      onControlRequest: (sighting) => {
+        if (child) this.noteControlRequest(child, sighting);
+      },
+      wasAdjudicated: (toolUseId) => this.adjudicated.has(toolUseId),
     });
 
     if (lastKind) this.lastEventKind = lastKind;
 
     for (const event of events) {
-      // The turn reached its own conclusion, so a later non-zero exit is not a
-      // mid-flight death and must not be recovered from or re-reported.
-      if (event.kind === 'turn-complete') this.sawTerminalResult = true;
+      if (event.kind === 'turn-complete') {
+        // The turn reached its own conclusion, so a later non-zero exit is not a
+        // mid-flight death and must not be recovered from or re-reported.
+        this.sawTerminalResult = true;
+        /*
+         * End of input, and the only place stdin is closed on a healthy turn.
+         *
+         * It happens here rather than after the user message because the
+         * control channel had to stay open for the whole turn. The child exits
+         * on its own shortly after this.
+         */
+        if (child) {
+          this.discardOutstanding(child);
+          this.endInput(child);
+        }
+      }
       this.emit(event);
     }
   }
@@ -589,7 +914,7 @@ export class ClaudeCliRuntime {
       runtimeVersion: this.runtimeVersion ?? (await this.detectVersion()),
       processState: this.processState,
       lastEventKind: this.lastEventKind,
-      pendingPermissionCount: this.grants.size,
+      pendingPermissionCount: this.pending.size,
     };
   }
 }

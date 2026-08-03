@@ -5,10 +5,12 @@ import {
   COUNCIL_CONVERSATION_MODE,
   type ConversationMode,
   type ConversationSummary,
+  type NewConversationMode,
   type PersistedMessage,
 } from '@shared/conversations';
 import { hasHost } from '@/lib/utils';
 import { useChat, type ChatMessage } from '@/lib/store/chat';
+import { useUi } from '@/lib/store/ui';
 
 interface ConversationsState {
   /** Conversations for the current workspace, newest activity first. */
@@ -56,7 +58,7 @@ interface ConversationsState {
    */
   startNew(
     workspacePath: string,
-    options?: { mode?: ConversationMode; title?: string }
+    options?: { mode?: NewConversationMode; title?: string }
   ): Promise<void>;
   remove(id: string): Promise<void>;
   /**
@@ -242,7 +244,31 @@ export const useConversations = create<ConversationsState>()((set, get) => ({
     }
     set({ loading: true, error: null });
 
-    const result = await window.eis!.conversations.create(workspacePath, options);
+    /*
+     * The scope is stamped here, once, and never again.
+     *
+     * Resolved in the store rather than at each call site — chat's first send,
+     * the History panel's New button, Return to Council, the Executive Board's
+     * single-agent chats — because four callers each remembering to attach it is
+     * three chances to forget. A conversation created without a scope would read
+     * back as Business, which is the safe direction but also a silent one: the
+     * founder would have selected Executive Learning and got an advisor that
+     * knows their runway.
+     *
+     * An explicitly supplied scope still wins, so a caller that has a reason can
+     * override the default without going through the setting.
+     */
+    const kind = options?.mode ?? COUNCIL_CONVERSATION_MODE;
+    const mode: ConversationMode = {
+      kind: kind.kind,
+      lensId: kind.lensId,
+      memory: options?.mode?.memory ?? useUi.getState().defaultMemoryScope,
+    };
+
+    const result = await window.eis!.conversations.create(workspacePath, {
+      ...options,
+      mode,
+    });
     if (!result.ok) {
       set({ loading: false, error: result.reason });
       return;

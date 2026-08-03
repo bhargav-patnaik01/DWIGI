@@ -13,9 +13,10 @@ import type {
   AdvisorDiagnostics,
   AdvisorEvent,
   AdvisorSessionOptions,
+  PermissionDecision,
 } from '../shared/advisor';
 import type {
-  ConversationMode,
+  NewConversationMode,
   ConversationResult,
   ConversationSummary,
   ConversationTranscript,
@@ -29,6 +30,8 @@ const bridge: HostBridge = {
     getInfo: () => ipcRenderer.invoke('host:info') as Promise<HostInfo>,
     selectDirectory: () =>
       ipcRenderer.invoke('host:selectDirectory') as Promise<string | null>,
+    // `send`, not `invoke`: one-way, no reply, no payload. See `HostBridge`.
+    signalReady: () => ipcRenderer.send('app:renderer-ready'),
   },
   advisor: {
     isAvailable: () => ipcRenderer.invoke('advisor:isAvailable') as Promise<boolean>,
@@ -36,7 +39,7 @@ const bridge: HostBridge = {
       ipcRenderer.invoke('advisor:open', options) as Promise<{ sessionId: string }>,
     send: (text: string, mode?: RuntimeMode) =>
       ipcRenderer.invoke('advisor:send', { text, mode }) as Promise<{ turnId: string }>,
-    respondToPermission: (requestId: string, decision: 'allow' | 'deny') =>
+    respondToPermission: (requestId: string, decision: PermissionDecision) =>
       ipcRenderer.invoke('advisor:respondToPermission', {
         requestId,
         decision,
@@ -87,7 +90,7 @@ const bridge: HostBridge = {
       >,
     create: (
       workspacePath: string,
-      options?: { mode?: ConversationMode; title?: string }
+      options?: { mode?: NewConversationMode; title?: string }
     ) =>
       ipcRenderer.invoke('conversations:create', {
         workspacePath,

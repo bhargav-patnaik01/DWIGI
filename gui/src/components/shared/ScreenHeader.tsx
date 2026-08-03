@@ -6,6 +6,15 @@ interface ScreenHeaderProps {
   title: string;
   /** One quiet line of context. Omit rather than pad. */
   subtitle?: string;
+  /**
+   * A standing property of the screen, shown beside the title.
+   *
+   * Distinct from `actions`, which are things to click on the right. A badge
+   * states what this screen *is* and sits with the name it qualifies, because a
+   * label about grounding that drifts to the far corner stops being read as part
+   * of the title.
+   */
+  badge?: React.ReactNode;
   actions?: React.ReactNode;
   /** Screens that own their own scrolling suppress the bottom border. */
   bare?: boolean;
@@ -15,7 +24,13 @@ interface ScreenHeaderProps {
  * Consistent 48px header across every screen, matching the sidebar wordmark
  * height so the top edge of the app reads as one continuous line.
  */
-export function ScreenHeader({ title, subtitle, actions, bare }: ScreenHeaderProps) {
+export function ScreenHeader({
+  title,
+  subtitle,
+  badge,
+  actions,
+  bare,
+}: ScreenHeaderProps) {
   return (
     <header
       className={cn(
@@ -25,6 +40,7 @@ export function ScreenHeader({ title, subtitle, actions, bare }: ScreenHeaderPro
     >
       <div className="flex min-w-0 items-baseline gap-2.5">
         <h1 className="text-[13px] font-semibold tracking-tight">{title}</h1>
+        {badge && <span className="no-drag shrink-0 self-center">{badge}</span>}
         {subtitle && (
           <span className="truncate text-2xs text-faint">{subtitle}</span>
         )}

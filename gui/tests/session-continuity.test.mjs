@@ -165,7 +165,19 @@ test('a stored session resumes on the FIRST turn after a restart', async () => {
   });
 });
 
-test('the founder’s text is delivered verbatim, and stdin is closed', async () => {
+/**
+ * The stdin lifecycle, which changed in transport v2.
+ *
+ * This test previously asserted the opposite — that stdin was closed as soon as
+ * the message had been written. That was the defect: stdin carries the
+ * permission control channel in both directions, so closing it after the user
+ * message left the engine unable to ask, and it fell back to refusing every
+ * tool call. The old assertion was a green tick over a real bug.
+ *
+ * The invariant is now two-sided, and both halves matter. Closing too early
+ * breaks permissions; never closing leaves the child waiting for input forever.
+ */
+test('the founder’s text is delivered verbatim, and stdin stays open until the turn ends', async () => {
   await withHarness(async (h) => {
     await h.runtime.open({ workspacePath: '/workspace' });
 
@@ -175,7 +187,15 @@ test('the founder’s text is delivered verbatim, and stdin is closed', async ()
     const { stdin } = h.spawns[0].child;
     const sent = JSON.parse(stdin.written.trim());
     assert.equal(sent.message.content[0].text, typed, 'no wrapping, no normalising');
-    assert.ok(stdin.ended, 'print mode waits forever unless stdin is closed');
+    assert.equal(
+      stdin.ended,
+      false,
+      'stdin was closed after the user message: this destroys the permission channel'
+    );
+
+    // The terminal result is the one signal that ends input.
+    h.spawns[0].child.stdout.emit('data', RESULT_LINE);
+    assert.ok(stdin.ended, 'stdin was never closed: the child would wait for input forever');
   });
 });
 

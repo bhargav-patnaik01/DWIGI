@@ -60,7 +60,10 @@ To provide a sole founder with the decision quality, strategic rigor, and risk m
 │   ├── onboarding/                 # Business Memory subsystem
 │   │   ├── business_memory.template.md   # Schema only — never real data
 │   │   └── memory_protocol.md            # Onboarding, inference, update workflow
-│   ├── executive_matrix.md         # 8 Persona Frameworks & activation criteria
+│   ├── executives/                 # One file per lens — the roster IS the directory
+│   │   ├── ceo.md · cfo.md · coo.md · sales-gtm.md
+│   │   ├── product.md · coach.md
+│   │   └── risk-officer.md · devils-advocate.md
 │   ├── reasoning_rules.md          # Participation gate, budgets, routing, overrides, arbitration
 │   ├── execution_pipeline.md       # 7-Stage Mechanics & Executive Action Memo spec
 │   ├── learning_protocol.md        # Decision Record schema & review procedure
@@ -78,7 +81,7 @@ To provide a sole founder with the decision quality, strategic rigor, and risk m
 | `CLAUDE.md` | **Operating kernel.** Identity, single-interface contract, operating principles, triage and reasoning budget, routing philosophy, safety rules, repository conventions, and references to supporting documents. Deliberately holds no execution mechanics — those live in `core/` and load on demand, keeping the always-resident file small and stable. | System Prompt / Boot |
 | `core/business_memory.md` | Living knowledge of company stage, financials, vision, non-negotiables, and moats. Every field carries confidence, provenance, and an update date. Agent-maintained; the founder never edits it. | Read on every deliberation |
 | `core/onboarding/` | Business Memory subsystem: schema template plus the onboarding, inference, confidence, and update-workflow protocol. | Read on first run or memory update |
-| `core/executive_matrix.md` | The eight persona reasoning modules: objective, evaluation criteria, heuristics, failure modes, and the activation / suppression / escalation criteria that gate participation. | Read at Focused budget or higher |
+| `core/executives/` | The persona reasoning modules, **one file per lens** (ADR-011): objective, evaluation criteria, heuristics, failure modes, and the activation / suppression / escalation criteria that gate participation. Each file declares machine-readable front matter — `id`, `display_name`, `role`, `structural`, `ordinal`, `version`. The directory is the roster; no list of executives exists anywhere else. | Read at Focused budget or higher |
 | `core/reasoning_rules.md` | The participation gate, reasoning-budget allocation, domain routing table, stage adaptation, override conditions, Intervention overlay, and conflict arbitration. | Read at Focused budget or higher |
 | `core/execution_pipeline.md` | Stage-by-stage mechanics of the 7-stage pipeline and the Executive Action Memo specification. | Read at Focused budget or higher |
 | `core/learning_protocol.md` | Decision Record schema, review procedure, decision-vs-outcome quality framework, calibration adjustment rules. | Read when writing a record or reviewing |
@@ -107,7 +110,7 @@ The **Chief of Staff (COS)** is the central cognitive gateway and execution orch
              │
              ▼
 ┌─────────────────────────┐
-│  ROUTING & WEIGHTING    │ ──► Reads `core/executive_matrix.md` & selects 2-4 lenses
+│  ROUTING & WEIGHTING    │ ──► Reads `core/executives/` & selects 2-4 lenses
 └────────────┬────────────┘
              │
              ▼
@@ -132,7 +135,7 @@ Every deliberation undergoes an internal 7-stage evaluation pass:
 1. **Stage 1: Intent & Diagnosis**: Audits query for XY traps, emotional triggers, and unstated assumptions.
 2. **Stage 2: Epistemic Classification**: Tags data into *Known Facts*, *Strong Evidence*, *Weak Evidence*, *Assumptions*, and *Unknowns*.
 3. **Stage 3: Mental Model Selection**: Dynamically selects 2–3 mental models (e.g., Bezos Type 1/Type 2 Reversibility, EV, Theory of Constraints).
-4. **Stage 4: Advisory Deliberation**: High-weight executive perspectives argue opposing positions based on `executive_matrix.md`.
+4. **Stage 4: Advisory Deliberation**: High-weight executive perspectives argue opposing positions based on their definitions in `core/executives/`.
 5. **Stage 5: Red Team & Bias Defense**: Devil's Advocate and Risk Officer challenge the emerging consensus.
 6. **Stage 6: Decision Timing & Gating**: Evaluates Reversibility vs Cost of Delay. Decides whether to Act, Gather Info, or Do Nothing.
 7. **Stage 7: Recommendation Output**: Generates a standardized Executive Action Memo (EAM).

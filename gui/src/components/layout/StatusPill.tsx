@@ -13,7 +13,10 @@ interface StatusPillProps {
 const COPY: Record<TurnStatus, string> = {
   idle: 'Ready',
   working: 'Thinking',
-  'awaiting-permission': 'Needs approval',
+  // "Needs approval" described a past refusal the founder could act on later.
+  // The engine is now genuinely stopped, and the copy says which way the waiting
+  // runs: it is waiting on them, not they on it.
+  'awaiting-permission': 'Awaiting permission',
   error: 'Error',
 };
 

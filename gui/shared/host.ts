@@ -14,10 +14,11 @@ import type {
   AdvisorDiagnostics,
   AdvisorEvent,
   AdvisorSessionOptions,
+  PermissionDecision,
 } from './advisor';
 import type { RuntimeMode } from './runtime-modes';
 import type {
-  ConversationMode,
+  NewConversationMode,
   ConversationResult,
   ConversationSummary,
   ConversationTranscript,
@@ -59,13 +60,27 @@ export interface HostBridge {
     getInfo(): Promise<HostInfo>;
     /** Opens a native picker. Resolves null if cancelled. */
     selectDirectory(): Promise<string | null>;
+    /**
+     * Announce that the interface has mounted and is safe to show.
+     *
+     * The host keeps the window hidden behind the startup animation until this
+     * arrives, so that the founder never sees a half-built screen. Carries no
+     * payload and returns nothing: the only fact it reports is that the shell is
+     * up, and there is no answer to wait for.
+     *
+     * Idempotent at the host. Not calling it is survivable — the host reveals
+     * the window on a timeout regardless, because a renderer that failed to
+     * report should be visible and diagnosable rather than hidden.
+     */
+    signalReady(): void;
   };
   advisor: {
     isAvailable(): Promise<boolean>;
     open(options: AdvisorSessionOptions): Promise<{ sessionId: string }>;
     /** `mode` omitted means an ordinary Council turn: `text` travels verbatim. */
     send(text: string, mode?: RuntimeMode): Promise<{ turnId: string }>;
-    respondToPermission(requestId: string, decision: 'allow' | 'deny'): Promise<void>;
+    /** Answer a blocking permission request. Idempotent; never throws. */
+    respondToPermission(requestId: string, decision: PermissionDecision): Promise<void>;
     cancel(): Promise<void>;
     close(): Promise<void>;
     getDiagnostics(): Promise<AdvisorDiagnostics>;
@@ -105,7 +120,7 @@ export interface HostBridge {
      */
     create(
       workspacePath: string,
-      options?: { mode?: ConversationMode; title?: string }
+      options?: { mode?: NewConversationMode; title?: string }
     ): Promise<ConversationResult<ConversationSummary>>;
     load(id: string): Promise<ConversationResult<ConversationTranscript>>;
     /** Append settled messages. Streaming messages are never sent here. */

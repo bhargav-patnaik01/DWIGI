@@ -22,6 +22,8 @@ Each Architecture Decision Record (ADR) captures the context, options considered
 - [ADR-008: Slash Commands as Executable Files vs Prose Conventions in CLAUDE.md](#adr-008-slash-commands-as-executable-files-vs-prose-conventions-in-claudemd)
 - [ADR-009: Qualitative Routing Tiers vs Numeric Persona Weights](#adr-009-qualitative-routing-tiers-vs-numeric-persona-weights)
 - [ADR-010: Progressive Business Memory vs Static Business Context](#adr-010-progressive-business-memory-vs-static-business-context)
+- [ADR-011: Per-Executive Canonical Files vs a Single Executive Matrix](#adr-011-per-executive-canonical-files-vs-a-single-executive-matrix)
+- [ADR-012: Executive Routing Manifest — Separating Participation from Reasoning](#adr-012-executive-routing-manifest--separating-participation-from-reasoning)
 
 ---
 
@@ -281,3 +283,152 @@ Option A was rejected because manual configuration blocks open-source adoption, 
 ### Reconsideration Conditions
 
 If inference proves unreliable enough that founders spend more time correcting memory than conversational onboarding saves, add an explicit `/memory edit` path for direct editing — but keep the confirmation workflow for agent-initiated changes.
+
+---
+
+## ADR-011: Per-Executive Canonical Files vs a Single Executive Matrix
+
+- **Status**: APPROVED (Sprint 3 — supersedes the file layout in ADR-007 and ROADMAP amendment 4)
+
+### Context
+
+`core/executive_matrix.md` held all eight lenses in one document. That was correct while the Council executed as a single reasoning context: one read produced the whole board, and the file's internal `## N.` numbering gave every lens a stable address.
+
+The roadmap now anticipates **independently addressable executives** — lenses that could eventually be loaded, versioned, or executed on their own. A single document forecloses that in small ways that compound: a lens cannot carry its own metadata, cannot be versioned separately, cannot be added without editing a shared file, and cannot be read without reading the other seven.
+
+### Problem
+
+Where should the canonical definition of an executive live?
+
+### Options Considered
+
+1. *Option A*: Keep the single matrix; add an index or manifest describing each lens.
+2. *Option B*: One canonical file per lens under `core/executives/`, with machine-readable front matter, discovered by directory listing.
+3. *Option C*: One file per lens **plus** a generated roster file for cheap enumeration.
+
+### Chosen Option
+
+**Option B — per-executive canonical files.**
+
+### Why It Won
+
+- **The directory becomes the roster.** No list of executives exists in any document or any line of code. Adding `core/executives/newlens.md` adds an executive to the engine, the Executive Board, Agent Management, and `/lens` simultaneously, with no code change. This was previously impossible: the GUI parsed `## N. Name — Role` headings out of one file.
+- **Identity is declared, not derived.** `id` was formerly recovered by lowercasing a prose heading (`lensIdFromName`). Renaming a lens silently changed the identifier that stored conversations and `/lens` arguments depend on. Front matter makes the id a declaration, and a declaration cannot disagree with itself.
+- **Metadata has somewhere to live.** `structural` was previously encoded as the literal string `*(S5, structural)*` inside a heading and recovered by regex. It is now a field.
+- **Option C was rejected** because a generated roster is a second source of truth. It would be correct at generation time and wrong the first time someone edited a lens without regenerating — and nothing would report the divergence.
+- **Option A was rejected** because a manifest inside the file it describes solves none of the isolation problems and adds a synchronisation burden.
+
+### Trade-offs Accepted
+
+**This is the part that matters, and it is a real cost, not a rounding error.**
+
+**The ADR-007 read-path bound is breached, from 6 files to 13.**
+
+| Interaction | Before | After |
+| :--- | :-: | :-: |
+| Minimal (recall) | 3 | 3 |
+| **Focused / Full** | **6** | **13** |
+| Writing a Decision Record | 4 | 4 |
+| First run (onboarding) | 3 | 3 |
+
+The cause is structural, not incidental. `reasoning_rules.md` §1 requires **every** lens to be evaluated against its criteria before S4 convenes — that is what makes routing a gate rather than a suggestion. Eight lenses in eight files therefore means eight reads on any interaction that routes at all.
+
+Three things are worth stating precisely, because the temptation is to report this as smaller than it is:
+
+1. **Token volume is essentially unchanged.** The same prose is read either way; the split adds eight short front-matter blocks and removes the matrix header. ADR-007's amended bound counts *files per interaction*, and that is the measure this breaches.
+2. **The split did not reduce loaded context for Council reasoning, and was never going to.** The stated motivation "context grows unnecessarily" does not apply to the Council path. It applies only to a future in which a single executive executes alone and reads one file — a mode this sprint explicitly did not build.
+3. **The bound has now been threatened three times.** ADR-007 amendment 1 replaced a file count with a per-interaction count. Amendment 2 refused to relax it again and removed a dependency instead, on the grounds that "a limit revised twice under pressure is not a limit." **This ADR does not relax it a third time.** The breach is recorded as accepted debt with the bound left at 6, and `check-references.sh` fails on it deliberately so it stays visible rather than becoming the new normal.
+
+Other trade-offs:
+
+- Per-lens `§N` references are no longer addressable and are replaced by filenames. Five references were rewritten.
+- Eight files must stay schema-consistent where one file previously enforced consistency by proximity.
+
+### Consequence: the shared board prose moved
+
+The matrix header described the board rather than any lens — evaluation-frameworks-not-characters, the constructive/challenge split, the field schema. Duplicating it into eight files would have created eight sources of truth for one rule, so it moved to `core/reasoning_rules.md` **§9**, appended rather than inserted so that §1–§8 keep their numbers and the ~15 existing references to them do not break.
+
+### Reconsideration Conditions
+
+**Revisit as soon as independent executive execution is actually built.** That work should retire this debt rather than inherit it: if a lens can be routed without reading the other seven, the Focused/Full path collapses back toward the bound. If it turns out that independent execution is *not* going to be built, this ADR should be reconsidered on its merits — because without it, the split's remaining benefit is metadata and discoverability, which is real but would not on its own justify breaching a bound the project has twice refused to widen.
+
+*Partially addressed by **ADR-012**, which made routing possible without reading the other seven. The measured result was much smaller than this ADR anticipated — see there.*
+
+---
+
+## ADR-012: Executive Routing Manifest — Separating Participation from Reasoning
+
+- **Status**: APPROVED (Sprint 4)
+
+### Context
+
+ADR-011 made each executive a canonical file. The gate in `reasoning_rules.md` §1 evaluates **every** lens before S4 convenes, so all eight files were read on any interaction that routed at all — a Focused/Full read path of 13 files. ADR-011 recorded that as accepted debt and said the fix was to make routing possible without loading personas.
+
+### Problem
+
+How can the gate decide *who participates* without reading the definition of everyone who does not?
+
+### Options Considered
+
+1. *Option A*: Keep gate criteria in persona files; accept that routing reads all of them.
+2. *Option B*: A separate `core/executive_manifest.md` holding participation criteria only; personas loaded after admission.
+3. *Option C*: Fold the same metadata into `core/reasoning_rules.md`, which is already loaded, adding no new file.
+
+### Chosen Option
+
+**Option B — a separate routing manifest.**
+
+`Activates when`, `Suppressed when`, `Escalates when`, and group membership **moved** out of the persona files into the manifest. They were not copied: the persona files no longer contain them, and the manifest is the single source of truth for participation. Persona files keep the six reasoning fields.
+
+### Why It Won
+
+- **The gate reads one small file.** Layer 1 consults the manifest, Layer 2 applies the domain table, and only then are admitted lenses loaded. An excluded lens's reasoning never enters the context — suppression is now cheap as well as absolute.
+- **Escalation still works for absent lenses.** `Escalates when` had to move too, and this is the subtle part. Risk Officer is *suppressed* at Focused budget yet escalates the moment irreversibility appears. Had escalation criteria stayed in persona files, they would have been visible only for admitted lenses, and the one case that matters most could never have fired. Keeping all eight in one already-open file preserves the behaviour at no cost.
+- **Option C was rejected despite being one file cheaper.** Two files with an identical trigger condition is the fragmentation ADR-007 criterion 3 warns about, which argued *for* folding — but folding puts per-lens data inside a prose rules document, and the GUI would then have to recover routing metadata by regex over 3,600 words. That is precisely the parse-prose-for-structure pattern ADR-011 removed. One extra file was the better trade.
+- **Option A was rejected** because it is the status quo the sprint existed to change.
+
+### Measured outcome
+
+**Reported against the ADR-011 baseline. Characters and files measured from disk; no tokenizer was run, so no token count is claimed.**
+
+| Interaction | Before (ADR-011) | After (ADR-012) | Δ files | Δ chars |
+| :--- | :--- | :--- | :-: | :-: |
+| Minimal (recall) | 3 / 45,139 | 3 / 45,650 | 0 | +511 |
+| Focused, 1 lens | 13 / 98,687 | **7 / 93,444** | **−6** | **−5,243 (−5.3%)** |
+| Focused, 2 lenses | 13 / 98,687 | **8 / 94,699** | **−5** | **−3,988 (−4.0%)** |
+| Full, 2 constructive + 2 challenge | 13 / 98,687 | **10 / 97,210** | **−3** | **−1,477 (−1.5%)** |
+| Full, 4 constructive + 2 challenge | 13 / 98,687 | **12 / 99,720** | **−1** | **+1,033 (+1.0%)** |
+
+Reader cost, median of 200 runs: gate alone **0.158 ms**; gate + 2 admitted **0.392 ms**; gate + 4 admitted **0.656 ms**; all 8 without a gate **1.013 ms**.
+
+**The context reduction is much smaller than the sprint anticipated, and at maximum breadth it is negative.** The arithmetic, which was not obvious before measuring:
+
+- The eight persona files were only **14.6%** of the Focused/Full read path. The other 85% is five base documents. A manifest can only ever reclaim part of that 14.6%.
+- Moving criteria does not shrink them. They were previously distributed across eight files that were all loaded; they are now in one file that is *always* loaded. The only genuine saving is the **reasoning** fields of unselected lenses — 1,255 chars each.
+- At Full budget with 4 constructive lenses, only two personas go unread, so the ceiling on saving is ~2,510 chars, against ~3,500 chars of new manifest scaffolding and gate documentation. Hence the net loss in that one row.
+
+Two rounds of trimming were applied after the first measurement showed Full budget at +4.0%: the manifest's rationale was moved into this ADR, and the duplicated split-explanation was cut from `reasoning_rules.md` §9. Both were fixes to real overhead in a hot path, not presentation.
+
+### ADR-007 status: improved, not retired
+
+The bound is ≤6 files per interaction. The peak went **13 → 12**, and the common Focused case went **13 → 7–8**. **The bound is still breached, and no manifest design can fix it**, for a reason worth stating plainly:
+
+> The routing base is already six files — kernel, memory, calibration, `reasoning_rules.md`, `execution_pipeline.md`, and the manifest. That is the bound, with zero executives loaded. Any deliberation involving two or more lenses exceeds it arithmetically.
+
+The file-count criterion is therefore **unreachable while executives are separate files**, independent of how routing is designed. Three honest responses exist, and this ADR takes none of them unilaterally:
+
+1. **Replace the count criterion with the token criterion ADR-007 amendment 1 already defines** — "peak context load stays under ~25,000 tokens." That criterion is met with room to spare. This is the recommended path, and its justification is the same one amendment 1 used when it discarded the original file-count bound: the count is again measuring the wrong thing, because it treats a 1,255-char persona and a 21,000-char kernel as one unit each.
+2. **Reverse ADR-011** and return to a single matrix file. Restores the count; discards independent addressability.
+3. **Accept a standing breach.** Honest, but a bound permanently in violation stops functioning as a bound.
+
+`check-references.sh` continues to **fail** on this deliberately. It will keep failing until an amendment is approved, which is the correct state for an unresolved architectural decision.
+
+### Trade-offs Accepted
+
+- **A lens is now described in two files.** ADR-011's "self-contained document" is weakened: a persona file says how a lens reasons but not when it participates. Adding an executive means two edits, and the reader reports either half being missing.
+- **The GUI had to change**, in a sprint scoped as no-GUI-work. `AgentManagement` read CFO's solvency floor from the persona field that moved; without the join it would have silently stopped warning. Compatibility required it.
+- **An unreadable manifest disables Agent Management.** Without group membership every lens reads as constructive, and the screen would offer toggles for the challenge lenses — switches the engine ignores. It shows Unavailable instead.
+
+### Reconsideration Conditions
+
+If independent executive execution is built, revisit whether the manifest should be **generated** from the persona files rather than hand-maintained. It is hand-written today because generation needs a build step this repository does not have, and a generated file checked in beside its source is a drift risk of its own. The consistency tests are the interim mitigation.

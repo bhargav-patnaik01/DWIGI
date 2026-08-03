@@ -7,11 +7,18 @@ import {
   type AdvisorEvent,
   type AdvisorSessionOptions,
   type AdvisorTransport,
+  type PermissionDecision,
 } from '@shared/advisor';
 import type { RuntimeMode } from '@shared/runtime-modes';
 import { hasHost } from '@/lib/utils';
 
-export type { AdvisorEvent, AdvisorSessionOptions, AdvisorTransport, RuntimeMode };
+export type {
+  AdvisorEvent,
+  AdvisorSessionOptions,
+  AdvisorTransport,
+  PermissionDecision,
+  RuntimeMode,
+};
 
 /**
  * IPC-backed transport.
@@ -46,7 +53,7 @@ class IpcAdvisorTransport implements AdvisorTransport {
     return this.api.send(text, mode);
   }
 
-  respondToPermission(requestId: string, decision: 'allow' | 'deny'): Promise<void> {
+  respondToPermission(requestId: string, decision: PermissionDecision): Promise<void> {
     return this.api.respondToPermission(requestId, decision);
   }
 

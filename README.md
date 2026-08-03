@@ -336,7 +336,7 @@ What you receive is one converged recommendation, its confidence band, and the s
 | **Risk Officer** | Survivable downside, named failure modes |
 | **Devil's Advocate** | Destroying the recommendation if it can be destroyed |
 
-These are reasoning frameworks, not characters. They are defined in `core/executive_matrix.md`, which the application reads — it holds no roster of its own.
+These are reasoning frameworks, not characters. Each is defined in its own file under `core/executives/`, which the application reads — it holds no roster of its own. The directory *is* the roster: adding a file adds an executive, with no code change anywhere.
 
 ### Single-agent chat — when you want one discipline undiluted
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { History, Pencil, Plus, Trash2, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { MemoryScopeBadge } from '@/components/chat/MemoryScopeBadge';
 import { useChat } from '@/lib/store/chat';
 import { useConversations } from '@/lib/store/conversations';
 import { cn } from '@/lib/utils';
@@ -201,6 +202,17 @@ export function ConversationMenu({ workspacePath }: { workspacePath: string }) {
                               nothing for it to continue. */}
                           {entry.sessionId === null && ' · not yet started'}
                         </p>
+
+                        {/* Only the deviation is marked. Badging every Business
+                            conversation would put a label on all of them and
+                            leave the founder scanning for the absence of one. */}
+                        {entry.mode.memory === 'learning' && (
+                          <MemoryScopeBadge
+                            scope={entry.mode.memory}
+                            variant="compact"
+                            className={cn('mt-1', switchBlocked && 'opacity-40')}
+                          />
+                        )}
                       </button>
 
                       {confirming === entry.id ? (

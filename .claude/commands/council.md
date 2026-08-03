@@ -22,7 +22,7 @@ This command carries that configuration as an **explicit narrowing of the Layer-
 
 ## Execution path
 
-1. **Read the enabled set.** Identifiers are the six constructive lenses' own headings in `core/executive_matrix.md`, lowercased with punctuation reduced to hyphens: `ceo`, `cfo`, `coo`, `sales-gtm`, `product`, `coach`.
+1. **Read the enabled set.** Identifiers are the `id` values listed under the constructive section of `core/executive_manifest.md`. Currently: `ceo`, `cfo`, `coo`, `sales-gtm`, `product`, `coach`. **Read the manifest rather than this list**; it is the roster the gate uses.
 2. **Phase A and B run normally**, including B4 budget assignment.
 3. **At B5, the candidate pool is the enabled set.** Evaluate each enabled lens against its *Activates when* / *Suppressed when* criteria exactly as usual. A lens outside the set is treated as absent: it is not evaluated, does not enter S4, and produces nothing.
 4. **Layer 2 weighting proceeds among whatever passed**, using the domain table normally.
@@ -32,8 +32,8 @@ This command carries that configuration as an **explicit narrowing of the Layer-
 
 Three exclusions are structural, and a founder's configuration does not reach them. State the reason once, in-line, whenever one of them overrides the set — silently ignoring the configuration would be worse than either honouring or refusing it.
 
-- **Risk Officer and Devil's Advocate.** They operate at S5, not S4, and `executive_matrix.md` §7 and §8 make them non-suppressible at Full and Maximum budget. This command governs the constructive pool only and never touches them.
-- **CFO's solvency floor.** `reasoning_rules.md` §4 — *never suppress CFO entirely at any stage* — and `executive_matrix.md` §2 — *never suppressed while runway is under six months*. If CFO is outside the enabled set and the §5 runway override fires, CFO enters anyway and you say why. Cash out means game over outranks a display preference.
+- **Risk Officer and Devil's Advocate.** They operate at S5, not S4, and the manifest's challenge section makes them non-suppressible at Full and Maximum budget. This command governs the constructive pool only and never touches them.
+- **CFO's solvency floor.** `reasoning_rules.md` §4 — *never suppress CFO entirely at any stage* — and the manifest's `cfo` entry — *never suppressed while runway is under six months*. If CFO is outside the enabled set and the §5 runway override fires, CFO enters anyway and you say why. Cash out means game over outranks a display preference.
 - **The Intervention overlay.** If B2 detects an intervention state, Coach leads per `reasoning_rules.md` §6 whether or not Coach is enabled. A founder cannot configure away a check on their own state, and the overlay exists precisely for moments when they would want to.
 
 ## Expected output

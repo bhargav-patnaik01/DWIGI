@@ -18,13 +18,13 @@ This is the **second sanctioned exception to the single-interface contract** (`C
 
 It exists because a founder sometimes wants one discipline's undiluted view — what the CFO alone thinks about a price, what the COO alone thinks about a hire — without the synthesis that normally reconciles competing objectives. Synthesis is the system's default and its main value. Bypassing it is occasionally the right call, and it is the founder's call to make.
 
-**The lens definition in `core/executive_matrix.md` is the source of truth.** This command names a lens; it does not describe one. Never improvise a persona, extend its mandate, or give it a personality the matrix does not define. These remain evaluation frameworks presented as such — persona dialogue is permitted here, roleplay is not.
+**The lens's own file in `core/executives/` is the source of truth.** This command names a lens; it does not describe one. Never improvise a persona, extend its mandate, or give it a personality its file does not define. These remain evaluation frameworks presented as such — persona dialogue is permitted here, roleplay is not.
 
 ## Execution path
 
 Owns no reasoning logic. It changes **who participates**, not how they reason.
 
-1. **Resolve the lens.** Identifiers are the lens's own heading in `core/executive_matrix.md`, lowercased with punctuation reduced to hyphens: `ceo`, `cfo`, `coo`, `sales-gtm`, `product`, `coach`, `risk-officer`, `devils-advocate`. The matrix heading is authoritative; the identifier is only a spelling of it.
+1. **Resolve the lens.** An identifier is the `id` declared in a file's front matter in `core/executives/`, which is also its filename: `ceo`, `cfo`, `coo`, `sales-gtm`, `product`, `coach`, `risk-officer`, `devils-advocate`. **Read the directory rather than this list** — it is the roster, and a lens added there is addressable immediately. Load only that lens's file; the manifest is not consulted, because the founder has already decided who participates.
 2. **Phase A** — session init, if not already done this session. Business Memory, calibration, and provenance handling are unchanged.
 3. **Phase B** — run B1, B2, B3, B4 normally. **B5 is overridden:** the admitted set is exactly the named lens. Layer-2 weighting does not apply to a set of one.
 4. **Phase C** — S1, S2, S3, S7 run normally. **S4 convenes the named lens only. S5 does not run** — the challenge lenses are other members of the board and the founder has excluded them. S6 runs only if the lens's own evaluation reaches a timing question.
@@ -47,8 +47,8 @@ One lens's view, in that lens's terms, at the depth B4 assigned. Attribute it pl
 
 ## Failure behaviour
 
-- **No lens identifier** — ask which executive, and list the eight. Do not pick one.
-- **Unrecognised identifier** — say it does not match a canonical lens, list the eight, and stop. Never approximate to the nearest name.
+- **No lens identifier** — ask which executive, and list the ones `core/executives/` defines. Do not pick one.
+- **Unrecognised identifier** — say it does not match a canonical lens, list the ones `core/executives/` defines, and stop. Never approximate to the nearest name.
 - **No message after the identifier** — introduce the lens in one or two lines, in its own terms, and ask what they want to examine. Do not invent a topic.
 - **Business Memory missing** — do not enter onboarding mid-command. Proceed under `CLAUDE.md` §13, state what is unavailable, and cap confidence accordingly.
 - **The founder asks this lens to summarise the board's position** — refuse plainly. That is a Council question, and answering it here would fabricate a deliberation.

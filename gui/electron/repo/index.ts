@@ -21,7 +21,8 @@ import type {
   Calibration,
   DecisionJournal,
   DecisionRecord,
-  ExecutiveMatrix,
+  ExecutiveDirectory,
+  ExecutiveLens,
   Projection,
   RepositorySnapshot,
 } from '../../shared/repo';
@@ -29,14 +30,16 @@ import {
   projectBusinessMemory,
   projectCalibration,
   projectDecisionRecord,
-  projectExecutiveMatrix,
+  projectExecutive,
+  projectManifest,
 } from './projections';
 
 /** Relative locations the cockpit knows about. Nothing else is read. */
 const PATHS = {
   memory: path.join('core', 'business_memory.md'),
   calibration: path.join('core', 'calibration_journal.md'),
-  executives: path.join('core', 'executive_matrix.md'),
+  executives: path.join('core', 'executives'),
+  manifest: path.join('core', 'executive_manifest.md'),
   journal: 'journal',
 } as const;
 
@@ -144,20 +147,142 @@ export class RepositoryReader {
     }
   }
 
-  async readExecutives(): Promise<Projection<ExecutiveMatrix>> {
-    const file = await this.readText(PATHS.executives);
-    if (!file.ok) return fail(file.reason);
+  /**
+   * Discover the board from `core/executives/`.
+   *
+   * ---------------------------------------------------------------------------
+   * THE DIRECTORY IS THE ROSTER
+   * ---------------------------------------------------------------------------
+   * Every `.md` file is a candidate lens. There is no list of expected
+   * executives here, no count to satisfy, and no name this reader knows —
+   * adding a file adds an executive, and removing one removes it, with no code
+   * change either way.
+   *
+   * Failure is graded rather than binary, because the two cases mean different
+   * things to a founder. An unreadable *directory* is a broken installation and
+   * the whole projection fails. An unreadable *file* is one missing executive:
+   * the rest of the board still projects, and the casualty is named in
+   * `skipped` so the gap is visible instead of silent.
+   */
+  async readExecutives(): Promise<Projection<ExecutiveDirectory>> {
+    const dir = this.resolveInside(PATHS.executives);
+    if (!dir) return fail('Path is outside the workspace.');
+
+    let entries: string[];
     try {
-      const value = projectExecutiveMatrix(file.text);
-      if (value.lenses.length === 0) {
-        // Better to report nothing than to show a partial board: an executive
-        // roster with silent gaps would misrepresent who deliberates.
-        return fail('No executive lenses found in the matrix.');
-      }
-      return ok(value);
+      entries = await readdir(dir);
     } catch (error) {
-      return fail(`Could not project the executive matrix: ${(error as Error).message}`);
+      const code = (error as NodeJS.ErrnoException).code;
+      return fail(
+        code === 'ENOENT'
+          ? 'No core/executives directory — the executive definitions are missing.'
+          : `Executive definitions unreadable (${code}).`
+      );
     }
+
+    const lenses: ExecutiveLens[] = [];
+    const skipped: string[] = [];
+    const claimed = new Map<string, string>();
+
+    // Filename order first, so the result is deterministic before `ordinal` is
+    // consulted and stays deterministic when two lenses declare the same one.
+    for (const name of entries.filter((n) => /\.md$/i.test(n)).sort()) {
+      const relative = path.join(PATHS.executives, name);
+      const file = await this.readText(relative);
+      if (!file.ok) {
+        skipped.push(name);
+        continue;
+      }
+
+      let lens: ExecutiveLens | null = null;
+      try {
+        lens = projectExecutive(name, file.text);
+      } catch {
+        lens = null;
+      }
+
+      if (!lens) {
+        skipped.push(name);
+        continue;
+      }
+
+      /*
+       * Two files claiming one id is a genuine ambiguity, not a preference.
+       *
+       * The id is what `/lens` transmits, so a duplicate would make one of the
+       * two unreachable — and which one would depend on iteration order. The
+       * second is refused and named rather than silently overwriting the first.
+       */
+      const owner = claimed.get(lens.id);
+      if (owner !== undefined) {
+        skipped.push(`${name} (duplicate id "${lens.id}", already claimed by ${owner})`);
+        continue;
+      }
+      claimed.set(lens.id, name);
+
+      lenses.push(lens);
+    }
+
+    if (lenses.length === 0) {
+      // Better to report nothing than to show a partial board: an executive
+      // roster with silent gaps would misrepresent who deliberates.
+      return fail('No executive definitions could be read from core/executives.');
+    }
+
+    /*
+     * Join participation metadata onto the roster.
+     *
+     * -------------------------------------------------------------------------
+     * THE DIRECTORY IS STILL THE ROSTER; THE MANIFEST ONLY ANNOTATES IT
+     * -------------------------------------------------------------------------
+     * A manifest entry cannot conjure an executive — if there is no file, there
+     * is no lens, and the id is reported as orphaned. That ordering matters: the
+     * reverse would let a routing index invent a board member with no definition
+     * behind it, which is the fabrication the whole projection layer forbids.
+     *
+     * A missing or unreadable manifest is survivable and disclosed. Every lens
+     * still appears with its reasoning intact; what is lost is knowing which
+     * ones may be toggled, and the interface says so rather than guessing.
+     */
+    const manifest = await this.readText(PATHS.manifest);
+    let manifestError: string | null = null;
+    const orphanedEntries: string[] = [];
+
+    if (!manifest.ok) {
+      manifestError = manifest.reason;
+    } else {
+      try {
+        const { routing, structural, malformed } = projectManifest(manifest.text);
+
+        for (const lens of lenses) {
+          const entry = routing.get(lens.id);
+          if (!entry) continue;
+          lens.routing = entry;
+          lens.structural = structural.has(lens.id);
+        }
+
+        for (const id of routing.keys()) {
+          if (!lenses.some((lens) => lens.id === id)) orphanedEntries.push(id);
+        }
+
+        const unrouted = lenses.filter((lens) => lens.routing === null).map((lens) => lens.id);
+        const problems = [
+          malformed.length > 0 ? `malformed entries: ${malformed.join('; ')}` : '',
+          unrouted.length > 0 ? `no entry for: ${unrouted.join(', ')}` : '',
+        ].filter(Boolean);
+
+        if (problems.length > 0) manifestError = problems.join(' — ');
+      } catch (error) {
+        manifestError = `Could not project the manifest: ${(error as Error).message}`;
+      }
+    }
+
+    // Declared order, with filename order as the stable tiebreak. Sorting rather
+    // than trusting directory order means the board presents identically on a
+    // filesystem that enumerates differently.
+    lenses.sort((a, b) => a.ordinal - b.ordinal || a.file.localeCompare(b.file));
+
+    return ok({ lenses, skipped, manifestError, orphanedEntries });
   }
 
   async readCalibration(): Promise<Projection<Calibration>> {
@@ -179,11 +304,20 @@ export class RepositoryReader {
       entries = await readdir(dir);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      return fail(
-        code === 'ENOENT'
-          ? 'No journal directory yet — the advisor creates it with the first record.'
-          : `Journal unreadable (${code}).`
-      );
+      /*
+       * An absent journal is empty, not broken.
+       *
+       * `journal/` does not exist until the advisor writes the first Decision
+       * Record, so every fresh installation hits this path. Reporting it as a
+       * failed projection meant the Decisions screen greeted a new founder with a
+       * caution-styled "unavailable" card about a directory they have no reason
+       * to know exists — for the most ordinary state in the system.
+       *
+       * Any OTHER error still fails: a journal that exists and cannot be read is
+       * a genuine fault, and collapsing the two would hide it.
+       */
+      if (code === 'ENOENT') return ok({ records: [], skipped: [] });
+      return fail(`Journal unreadable (${code}).`);
     }
 
     const records: DecisionRecord[] = [];

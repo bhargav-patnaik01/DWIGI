@@ -18,7 +18,9 @@ Implementation is structured across **6 discrete, incremental milestones**. Afte
 >
 > **4. The Executive Matrix is split** *(ratified pre-M6)*. `core/executive_matrix.md` retains the eight personas and their activation, suppression, and escalation criteria; `core/reasoning_rules.md` takes routing, reasoning-budget allocation, stage adaptation, override conditions, the Intervention overlay, and conflict arbitration. Personas keep sections §1–§8 so existing references to Coach (§6) and Risk Officer (§7) remain valid. Activation is now **procedural**: a lens failing the gate never enters deliberation, rather than entering and being filtered from output.
 >
-> Milestone numbering below reflects the original ordering regardless of build sequence. See also **ADR-008** (command files as executable interfaces) and **ADR-009** (qualitative routing tiers).
+> **5. The Executive Matrix is dissolved into one file per lens** *(ADR-011, Sprint 3)*. `core/executive_matrix.md` no longer exists. Each lens is a self-contained document under `core/executives/` carrying machine-readable front matter, and the directory is the roster — there is no list of executives in any file or any code. The shared board prose that headed the matrix moved to `core/reasoning_rules.md` §9. Amendment 4's note that "personas keep sections §1–§8" is therefore superseded: per-lens section references are replaced by filenames. No persona wording changed, and no reasoning changed.
+>
+> Milestone numbering below reflects the original ordering regardless of build sequence. See also **ADR-008** (command files as executable interfaces), **ADR-009** (qualitative routing tiers), and **ADR-011** (per-executive canonical files).
 
 ---
 

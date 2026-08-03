@@ -116,7 +116,7 @@ export function Welcome({ onStart, starting, blockedReason }: WelcomeProps) {
 
           <Stagger delay={440}>
             <div className="mt-12 border-t border-line pt-5">
-              <p className="text-[12.5px] leading-relaxed text-faint">
+              <p className="text-[13px] leading-relaxed text-faint">
                 Created by Bhargav Patnaik for all the founders out there.
               </p>
             </div>

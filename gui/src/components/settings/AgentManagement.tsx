@@ -11,15 +11,21 @@ import { useUi } from '@/lib/store/ui';
 import { cn } from '@/lib/utils';
 
 /**
- * A lens the matrix declares cannot be fully suppressed.
+ * A lens the manifest says cannot be fully suppressed.
  *
  * ---------------------------------------------------------------------------
  * READ FROM THE FILE, NOT HARDCODED
  * ---------------------------------------------------------------------------
- * `executive_matrix.md` writes standing floors into each lens's *Suppressed when*
- * text — the CFO's is "never suppressed while runway is under six months". Rather
- * than encoding "CFO has a floor" here, which would be a second copy of a rule
- * that lives in the repository, this matches the file's own phrasing.
+ * `core/executive_manifest.md` writes standing floors into each lens's
+ * *Suppressed when* text — the CFO's is "never suppressed while runway is under
+ * six months". Rather than encoding "CFO has a floor" here, which would be a
+ * second copy of a rule that lives in the repository, this matches the file's
+ * own phrasing.
+ *
+ * The source moved from the persona file to the manifest in ADR-012, and the
+ * matched text came with it unchanged. Reading the old location would now find
+ * nothing and silently stop warning — which is why a test asserts this caution
+ * still fires for the live board rather than trusting the field to exist.
  *
  * If a floor is added to another lens, or removed from this one, the interface
  * follows without a code change. If the phrasing changes, the caution disappears
@@ -53,7 +59,7 @@ function undecorate(text: string): string {
  * written to `core/`, `journal/`, or any persona definition.
  */
 export function AgentManagement() {
-  const { constructive, structural, enabled, unavailable } = useCouncilConfig();
+  const { constructive, structural, enabled, unavailable, manifestError } = useCouncilConfig();
   const setEnabledLenses = useUi((s) => s.setEnabledLenses);
   const [refused, setRefused] = useState<string | null>(null);
 
@@ -86,7 +92,23 @@ export function AgentManagement() {
         title="Agent Management"
         note="Which executives the Council may engage."
       >
-        <Unavailable label="Executive matrix" reason={unavailable} />
+        <Unavailable label="Executive definitions" reason={unavailable} />
+      </Section>
+    );
+  }
+
+  /*
+   * No trustworthy participation data means no configuration surface.
+   *
+   * Without the manifest every lens reads as constructive, so this screen would
+   * offer toggles for the two challenge lenses — switches the engine ignores.
+   * Showing a switch that does nothing is worse than showing none, because the
+   * founder cannot tell the difference from the outside.
+   */
+  if (manifestError) {
+    return (
+      <Section title="Agent Management" note="Which executives the Council may engage.">
+        <Unavailable label="Executive routing manifest" reason={manifestError} />
       </Section>
     );
   }
@@ -99,7 +121,7 @@ export function AgentManagement() {
       <div className="divide-y divide-line">
         {constructive.map((lens) => {
           const on = enabled.has(lens.id);
-          const suppressed = lens.fields['Suppressed when'] ?? '';
+          const suppressed = lens.routing?.suppressed ?? '';
           const floor = STANDING_FLOOR.test(suppressed);
           const blocked = on && enabled.size <= MIN_ENABLED_LENSES;
 
@@ -138,13 +160,13 @@ export function AgentManagement() {
         <div className="mt-4 rounded-lg border border-line bg-surface p-3.5">
           <div className="flex items-center gap-2">
             <Shield className="h-3.5 w-3.5 shrink-0 text-muted" strokeWidth={1.75} />
-            <span className="text-[12.5px] font-medium text-muted">
+            <span className="text-[13px] font-medium text-muted">
               Always engaged, not configurable
             </span>
           </div>
           <p className="mt-1.5 text-2xs leading-relaxed text-faint">
             {structural.map((lens) => lens.name).join(' and ')} attack the finished
-            recommendation rather than helping build it. The executive matrix declares them
+            recommendation rather than helping build it. The routing manifest declares them
             non-suppressible at full deliberation depth, so this screen does not offer a
             switch that the engine would ignore.
           </p>
@@ -177,7 +199,7 @@ export function About({
     <div className="mt-12 border-t border-line pt-6">
       <p className="text-[13px] font-medium text-ink">Thank you for using - Bhargav Patnaik</p>
 
-      <div className="mt-3 text-[12.5px] leading-relaxed text-faint">
+      <div className="mt-3 text-[13px] leading-relaxed text-faint">
         <div>D.W.I.G.I — Don&rsquo;t Worry I Got It</div>
         {appVersion && <div>Version {appVersion}</div>}
       </div>
@@ -214,7 +236,7 @@ function Section({
     // a gap apart read as a mistake rather than as separation.
     <section className="mt-8">
       <h2 className="text-[13px] font-semibold tracking-tight text-ink">{title}</h2>
-      <p className="mt-1 text-[12.5px] leading-relaxed text-muted">{note}</p>
+      <p className="mt-1 text-[13px] leading-relaxed text-muted">{note}</p>
       <div className="mt-2">{children}</div>
     </section>
   );

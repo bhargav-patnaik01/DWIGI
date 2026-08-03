@@ -22,9 +22,23 @@
     --elevated: 240 5% 11%;
     --line: 240 4% 15%;
 
+    /*
+     * Three text weights, and all three are readable.
+     *
+     * A DOM audit of every screen found 122 contrast failures, and every one of
+     * them was `--faint`: 3.00:1 on canvas, 2.84 on surface, 2.64 on elevated,
+     * against a 4.5:1 floor for text this size. It is also the app's most-used
+     * text colour and is mostly set at 11px, so the least legible token was
+     * carrying the densest type.
+     *
+     * Raising `--faint` alone would have collapsed the hierarchy — it would have
+     * landed within a few points of `--muted` and the two would read as one
+     * colour. Both moved, preserving the three-step relationship the design
+     * depends on while bringing the bottom step above the floor.
+     */
     --ink: 240 6% 93%;
-    --muted: 240 4% 58%;
-    --faint: 240 4% 38%;
+    --muted: 240 4% 66%;
+    --faint: 240 4% 52%;
 
     /* Warm amber, used sparingly: active nav, focus ring, live indicators. */
     --accent: 36 90% 62%;
@@ -44,9 +58,11 @@
     --elevated: 0 0% 100%;
     --line: 40 8% 88%;
 
+    /* Same correction, mirrored: in light theme the scale runs darker, so both
+       steps move down rather than up. */
     --ink: 240 8% 12%;
-    --muted: 240 5% 42%;
-    --faint: 240 5% 60%;
+    --muted: 240 5% 34%;
+    --faint: 240 5% 47%;
 
     --accent: 30 78% 44%;
     --accent-ink: 40 60% 98%;
@@ -106,6 +122,36 @@
   }
   .no-drag {
     -webkit-app-region: no-drag;
+  }
+
+  /*
+   * macOS traffic-light clearance.
+   *
+   * `titleBarStyle: 'hiddenInset'` lifts the renderer under the window controls,
+   * and `trafficLightPosition` in main.ts centres them in the 48px header row.
+   * Neither moves the app's own content out from under them, so the sidebar
+   * wordmark needs to start to their right.
+   *
+   * Done here, keyed off a `data-platform` attribute, rather than with a
+   * conditional class in a component: the offset is presentation, it changes no
+   * render path, and every other platform sees none of it. `--titlebar-inset` is
+   * 78px because the three 12px buttons with their 8px gutters occupy ~62px from
+   * a 16px origin.
+   *
+   * Collapsed, the 60px rail is narrower than the controls themselves, so the
+   * glyph is hidden rather than pushed somewhere it cannot fit. The rail is still
+   * a drag region, which is what that row is for on macOS anyway.
+   */
+  :root {
+    --titlebar-inset: 78px;
+  }
+
+  [data-platform='darwin'] .titlebar-safe {
+    padding-left: var(--titlebar-inset);
+  }
+
+  [data-platform='darwin'] .titlebar-safe-collapsed > * {
+    visibility: hidden;
   }
 
   /* Respect the OS. Every animation in this app is non-essential. */

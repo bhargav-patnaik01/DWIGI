@@ -107,11 +107,22 @@ export function DiagnosticsPanel() {
       snapshot ? (snapshot.memoryPresent ? 'present' : 'absent — first run') : 'not read',
     ],
     [
-      'Executive matrix',
+      'Executive board',
       snapshot
         ? snapshot.executives.ok
-          ? `${snapshot.executives.value.lenses.length} lenses`
+          ? `${snapshot.executives.value.lenses.length} lenses` +
+            (snapshot.executives.value.skipped.length > 0
+              ? `, ${snapshot.executives.value.skipped.length} skipped`
+              : '')
           : `unavailable — ${snapshot.executives.reason}`
+        : 'not read',
+    ],
+    [
+      'Routing manifest',
+      snapshot
+        ? snapshot.executives.ok
+          ? (snapshot.executives.value.manifestError ?? 'joined')
+          : 'not read'
         : 'not read',
     ],
   ];

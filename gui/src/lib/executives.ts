@@ -19,36 +19,57 @@ export { MIN_ENABLED_LENSES };
  * ---------------------------------------------------------------------------
  * DERIVATION, NOT AUTHORSHIP
  * ---------------------------------------------------------------------------
- * Everything below is a function of two inputs: the lens roster projected from
- * `core/executive_matrix.md`, and the founder's own enable/disable choices. No
- * lens is named in this file, and no rule about what a lens does is encoded
- * here. If the matrix loses a lens, it disappears from the interface; if it
- * gains one, the interface offers it without a code change.
+ * Everything below is a function of two inputs: the lens roster discovered from
+ * `core/executives/`, and the founder's own enable/disable choices. No lens is
+ * named in this file, and no rule about what a lens does is encoded here. If the
+ * directory loses a lens, it disappears from the interface; if it gains one, the
+ * interface offers it without a code change.
  *
  * The one piece of policy that does live here is the deliberation floor, and it
  * is a restatement of `core/reasoning_rules.md` §1 rather than a new rule.
  */
 
 export interface ExecutiveRoster {
-  /** Every lens the matrix defines, in the file's own order. */
+  /** Every lens the directory defines, in declared order. */
   all: ExecutiveLens[];
   /**
    * Lenses that build recommendations at S4 and can therefore be configured.
    *
-   * Identified by the matrix marking them *not* structural — the interface reads
-   * that from the file rather than deciding it.
+   * Identified by their own files marking them *not* structural — the interface
+   * reads that from front matter rather than deciding it.
    */
   constructive: ExecutiveLens[];
   /**
-   * Lenses the matrix declares structural at S5.
+   * Lenses their own files declare structural at S5.
    *
-   * Displayed, never toggled. `executive_matrix.md` §7 and §8 make them
-   * non-suppressible at Full and Maximum budget, so a toggle for them would be
-   * decorative — it would appear to do something the engine would ignore.
+   * Displayed, never toggled. `core/executives/risk-officer.md` and
+   * `core/executives/devils-advocate.md` make them non-suppressible at Full and
+   * Maximum budget, so a toggle for them would be decorative — it would appear
+   * to do something the engine would ignore.
    */
   structural: ExecutiveLens[];
   /** Reason the roster is unavailable, or null when it projected cleanly. */
   unavailable: string | null;
+  /**
+   * Executive files that could not be read, so a missing board member is never
+   * silent. Empty is the normal state.
+   */
+  skipped: string[];
+  /**
+   * Why participation metadata is untrustworthy, or null when it read cleanly.
+   *
+   * ---------------------------------------------------------------------------
+   * THIS IS NOT COSMETIC, AND IT GATES AGENT MANAGEMENT
+   * ---------------------------------------------------------------------------
+   * Without the manifest every lens reads as constructive, because `structural`
+   * is populated from it. Agent Management would then offer toggles for Risk
+   * Officer and Devil's Advocate — switches the engine ignores, which is exactly
+   * the lie that screen exists not to tell. So a manifest problem disables the
+   * configuration surface rather than degrading it quietly.
+   */
+  manifestError: string | null;
+  /** Manifest ids with no definition file behind them. */
+  orphanedEntries: string[];
 }
 
 export function useExecutiveRoster(): ExecutiveRoster {
@@ -57,17 +78,21 @@ export function useExecutiveRoster(): ExecutiveRoster {
   return useMemo(() => {
     const projection = snapshot?.executives;
 
+    const empty = {
+      all: [],
+      constructive: [],
+      structural: [],
+      skipped: [],
+      manifestError: null,
+      orphanedEntries: [],
+    };
+
     if (!projection) {
-      return {
-        all: [],
-        constructive: [],
-        structural: [],
-        unavailable: 'No repository is attached.',
-      };
+      return { ...empty, unavailable: 'No repository is attached.' };
     }
 
     if (!projection.ok) {
-      return { all: [], constructive: [], structural: [], unavailable: projection.reason };
+      return { ...empty, unavailable: projection.reason };
     }
 
     const all = projection.value.lenses;
@@ -76,6 +101,9 @@ export function useExecutiveRoster(): ExecutiveRoster {
       constructive: all.filter((lens) => !lens.structural),
       structural: all.filter((lens) => lens.structural),
       unavailable: null,
+      skipped: projection.value.skipped,
+      manifestError: projection.value.manifestError,
+      orphanedEntries: projection.value.orphanedEntries,
     };
   }, [snapshot]);
 }

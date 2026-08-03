@@ -7,9 +7,9 @@ import { EmptyState } from '@/components/shared/EmptyState';
 import { Message } from '@/components/chat/Message';
 import { Composer } from '@/components/chat/Composer';
 import { ActivityTimeline } from '@/components/chat/ActivityTimeline';
-import { PermissionNotice } from '@/components/chat/PermissionNotice';
 import { ConversationMenu } from '@/components/chat/ConversationMenu';
 import { LensScopeNotice } from '@/components/chat/LensScopeNotice';
+import { MemoryScopeBadge } from '@/components/chat/MemoryScopeBadge';
 import { Welcome } from '@/components/onboarding/Welcome';
 import { getAdvisorTransport } from '@/lib/advisor/transport';
 import { startConversationRecorder } from '@/lib/conversations/recorder';
@@ -19,7 +19,12 @@ import { useUi } from '@/lib/store/ui';
 import { useRepo } from '@/lib/store/repo';
 import { useCouncilConfig, useExecutive } from '@/lib/executives';
 import { shouldShowWelcome } from '@shared/onboarding';
-import { lensMode, ONBOARDING_TURN, type RuntimeMode } from '@shared/runtime-modes';
+import {
+  lensMode,
+  ONBOARDING_TURN,
+  withMemoryScope,
+  type RuntimeMode,
+} from '@shared/runtime-modes';
 import { hasHost } from '@/lib/utils';
 
 /**
@@ -46,6 +51,7 @@ export default function ChatPage() {
   const onboardingStarted = useUi((s) => s.onboardingStarted);
   const markOnboardingStarted = useUi((s) => s.markOnboardingStarted);
   const devForceFirstRun = useUi((s) => s.devForceFirstRun);
+  const defaultMemoryScope = useUi((s) => s.defaultMemoryScope);
 
   const snapshot = useRepo((s) => s.snapshot);
 
@@ -56,7 +62,6 @@ export default function ChatPage() {
   const lastError = useChat((s) => s.lastError);
   const applyEvent = useChat((s) => s.applyEvent);
   const appendUserMessage = useChat((s) => s.appendUserMessage);
-  const dismissPermission = useChat((s) => s.dismissPermission);
 
   // `activeId` and `activeSessionId` are read via `getState()` inside callbacks
   // rather than subscribed to. Subscribing would re-run `ensureOpen`'s identity on
@@ -186,12 +191,31 @@ export default function ChatPage() {
    * disabled for Council is still available to talk to directly. A Council
    * conversation sends the configured pool, which composes nothing at all while
    * the configuration is untouched.
+   *
+   * ---------------------------------------------------------------------------
+   * THE SCOPE COMES FROM THE CONVERSATION, NOT FROM THE SETTING
+   * ---------------------------------------------------------------------------
+   * `activeMode.memory` was written into this conversation's record when it was
+   * created and is never written again. `defaultMemoryScope` — the toggle by the
+   * composer — is deliberately not read here.
+   *
+   * Reading the setting instead would be a one-word change with no visible
+   * symptom until the day a founder flips the toggle and every thread in their
+   * history quietly changes what it is grounded in. It is the single most likely
+   * way this feature breaks, so the two values never meet in this file.
+   *
+   * It is also re-sent on *every* turn rather than declared once per session, so
+   * a session the engine has forgotten — which the transport already reports and
+   * recovers from — cannot silently return a Learning conversation to Business.
    */
   const mode: RuntimeMode = useMemo(
     () =>
-      activeMode.kind === 'lens' && activeMode.lensId
-        ? lensMode(activeMode.lensId)
-        : council.mode,
+      withMemoryScope(
+        activeMode.kind === 'lens' && activeMode.lensId
+          ? lensMode(activeMode.lensId)
+          : council.mode,
+        activeMode.memory
+      ),
     [activeMode, council.mode]
   );
 
@@ -310,14 +334,6 @@ export default function ChatPage() {
     void getAdvisorTransport().cancel();
   }, []);
 
-  const decide = useCallback(
-    (requestId: string, decision: 'allow' | 'deny') => {
-      void getAdvisorTransport().respondToPermission(requestId, decision);
-      dismissPermission(requestId);
-    },
-    [dismissPermission]
-  );
-
   /* ------------------------------------------------------------------ render */
   const noRuntime = available === false;
   const noWorkspace = !workspacePath;
@@ -335,6 +351,15 @@ export default function ChatPage() {
     memoryPresent: snapshot?.memoryPresent ?? false,
     onboardingStarted,
     forced: devForceFirstRun,
+    /*
+     * The *setting*, not the active conversation, and this is the one place that
+     * is correct.
+     *
+     * The welcome screen is an invitation to create the next conversation, so
+     * the scope that governs it is the one the next conversation would get. Every
+     * other read in this file goes to `activeMode.memory`.
+     */
+    memoryScope: defaultMemoryScope,
   });
 
   if (welcome && messages.length === 0) {
@@ -375,7 +400,9 @@ export default function ChatPage() {
    * narrowed pool says so, because a founder who disabled two lenses months ago
    * should not have to remember that while reading a recommendation.
    */
-  const subtitle = busy
+  const subtitle = status === 'awaiting-permission'
+    ? 'Awaiting permission'
+    : busy
     ? 'Thinking'
     : isLensChat
       ? `${activeLens?.name ?? activeMode.lensId} · single executive`
@@ -387,6 +414,8 @@ export default function ChatPage() {
     <>
       <ScreenHeader
         title={isLensChat ? `${activeLens?.name ?? activeMode.lensId} Chat` : 'Council Chat'}
+        // Read from the conversation's own record, never from the setting.
+        badge={<MemoryScopeBadge scope={activeMode.memory} />}
         subtitle={subtitle}
         actions={workspacePath ? <ConversationMenu workspacePath={workspacePath} /> : undefined}
       />
@@ -438,9 +467,6 @@ export default function ChatPage() {
 
           {activity.length > 0 && <ActivityTimeline items={activity} />}
 
-          {pending.map((request) => (
-            <PermissionNotice key={request.requestId} request={request} onDecision={decide} />
-          ))}
 
           {/* Two independent failures, shown independently: a turn can fail while
               the transcript saves, and the transcript can fail to save while the
@@ -474,6 +500,7 @@ export default function ChatPage() {
               : 'Ask the Chief of Staff…'
         }
       />
+
     </>
   );
 }

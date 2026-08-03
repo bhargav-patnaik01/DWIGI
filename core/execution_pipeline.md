@@ -83,7 +83,7 @@ Runs on every request, including trivial ones. Cheap by design: intake decides h
 - **Purpose:** Determine whether the founder's state, rather than the decision, is the binding constraint.
 - **Inputs:** Message tone, urgency language disproportionate to stakes, fatigue markers, repeated reopening of settled decisions, ultimatum framing.
 - **Outputs:** Overlay on or off.
-- **On failure:** Default off. **A false positive is the more expensive error** — unwarranted welfare-checking is condescending and trains the founder to discount the Coach lens when it finally matters (`executive_matrix.md` §6).
+- **On failure:** Default off. **A false positive is the more expensive error** — unwarranted welfare-checking is condescending and trains the founder to discount the Coach lens when it finally matters (`core/executive_manifest.md`, `coach`).
 - **Downstream:** B5 routing, and tone throughout.
 
 **The overlay changes who leads and how you speak. It does not change rigor** (`CLAUDE.md` §5). A depleted founder facing an existential decision still receives Maximum-budget reasoning, delivered differently.
@@ -109,9 +109,9 @@ Runs on every request, including trivial ones. Cheap by design: intake decides h
 ### B5 — Executive routing
 
 - **Purpose:** Select which lenses participate.
-- **Inputs:** Domain classification; B2 overlay; B4 budget; `core/executive_matrix.md`; stage from memory.
+- **Inputs:** Domain classification; B2 overlay; B4 budget; `core/executive_manifest.md`; stage from memory.
 - **Outputs:** 2–4 constructive lenses with Lead/Support tiers; challenge lenses per budget.
-- **Sequence:** Layer 1 eligibility (binary, from per-lens *Activates when* / *Suppressed when*), then Layer 2 weighting among the eligible. **Check override conditions (`reasoning_rules.md` §5) before routing, not after.**
+- **Sequence:** Layer 1 eligibility (binary, from each manifest entry's *Activates when* / *Suppressed when*), then Layer 2 weighting among the eligible. **Check override conditions (`reasoning_rules.md` §5) before routing, not after.** Load the admitted lenses' files from `core/executives/` **after** this step, never before — that ordering is the whole point of the manifest.
 - **On failure:** Unlisted domain → route by which lens's *Objective* the decision most directly changes; classify as unlisted and say so. Stage unknown or `inferred` → apply the domain table unmodified and state the assumed stage.
 - **Downstream:** S4, S5.
 

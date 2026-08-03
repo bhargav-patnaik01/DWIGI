@@ -183,7 +183,7 @@ Business Memory is a first-class input to every deliberation. Nothing in this sy
 - An `inferred` value is an **Assumption**, never a fact. If a recommendation rests on one, it appears in *What Must Be True* and caps confidence at Moderate.
 - A stale operating field is **Weak Evidence** regardless of its recorded confidence.
 
-**Which lenses read what** (`executive_matrix.md`):
+**Which lenses read what** (`core/executives/`):
 
 | Lens | Primary memory dependencies |
 | :--- | :--- |

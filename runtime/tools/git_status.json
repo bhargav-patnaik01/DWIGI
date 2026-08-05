@@ -1,0 +1,48 @@
+{
+  "name": "git_status",
+  "version": "1.0.0",
+  "category": "git",
+  "description": "Read-only snapshot of the working tree's state relative to the last commit: current branch, and which files are staged, unstaged, or untracked. The tool to call before any operation that could discard or overwrite uncommitted work.",
+  "read_only": true,
+  "requires_confirmation": false,
+  "risk_level": "low",
+  "timeout_ms": 10000,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "type": "string",
+        "default": ".",
+        "description": "Directory to run the status check from, relative to the workspace root. Must resolve inside a git repository."
+      },
+      "include_untracked": {
+        "type": "boolean",
+        "default": true,
+        "description": "Report untracked files. Disabling this answers a narrower question — 'is anything tracked modified' — and must not be used to make a dirty tree look clean."
+      }
+    },
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["branch", "staged", "unstaged", "untracked", "clean"],
+    "properties": {
+      "branch": { "type": "string", "description": "Current branch name, or a detached-HEAD commit reference." },
+      "staged": { "type": "array", "items": { "type": "string" }, "description": "Files staged for the next commit." },
+      "unstaged": { "type": "array", "items": { "type": "string" }, "description": "Tracked files with unstaged modifications." },
+      "untracked": { "type": "array", "items": { "type": "string" }, "description": "Files git does not yet track. Empty if `include_untracked` was false, not because none exist." },
+      "clean": {
+        "type": "boolean",
+        "description": "True only when `staged`, `unstaged`, and (if requested) `untracked` are all empty. A tree is never reported clean while `include_untracked` is false and untracked files might exist — see `safety_notes`."
+      },
+      "ahead": { "type": "integer", "description": "Commits ahead of the upstream branch, if one is configured." },
+      "behind": { "type": "integer", "description": "Commits behind the upstream branch, if one is configured." }
+    },
+    "additionalProperties": false
+  },
+  "errors": [
+    { "code": "not_a_repository", "description": "`cwd` does not resolve inside a git repository." },
+    { "code": "outside_workspace", "description": "`cwd` resolves outside the workspace root and was refused before any git command ran." }
+  ],
+  "safety_notes": "Strictly read-only — this tool runs no command that stages, commits, stashes, or discards anything. `clean` is defined precisely so it cannot be misread as a green light: when `include_untracked` is false, `clean` reflects tracked files only and must be reported to a human alongside that caveat, never presented bare as 'nothing to lose.' This is the tool `skills/git.md` requires calling before any destructive git operation, and its result should be re-checked immediately before that operation runs, not cached from an earlier point in a session — the tree can change between the check and the act."
+}

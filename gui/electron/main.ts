@@ -15,12 +15,21 @@ import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
 import { createReadStream, statSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
-import { ClaudeCliRuntime } from './bridge/claude-cli';
 import { ConversationStore } from './conversations';
 import { createSplash, dismiss } from './splash';
 import { RepositoryReader } from './repo';
+import { RuntimeManager } from './runtime/manager';
+import { CredentialStore } from './runtime/auth/credentials';
+import {
+  createWorkspace,
+  openWorkspace,
+  repairWorkspace,
+  resolveEngineSource,
+  validateWorkspace,
+} from './workspace';
 import { readConversationMode, type PersistedMessage } from '../shared/conversations';
 import { parseRuntimeMode } from '../shared/runtime-modes';
+import { parseDeepLink, PROTOCOL, routeForIntent } from '../shared/deeplink';
 import { resolveIconPath } from '../shared/icon';
 import { Readable } from 'node:stream';
 
@@ -298,8 +307,35 @@ function createWindow(): BrowserWindow {
    * only way a headless check can tell "still initialising" from "broken".
    */
   if (process.env.EIS_SMOKE === '1') {
-    win.webContents.on('console-message', (_e, level, message) => {
-      if (level >= 2) console.error(`[smoke:renderer] ${message}`);
+    /*
+     * Electron 34 changed this event's shape: it now passes a single event
+     * object carrying `level` as a STRING, where it used to pass
+     * `(event, level: number, message, line, sourceId)`.
+     *
+     * The old numeric comparison silently never matched, so the smoke harness
+     * reported nothing while the renderer was throwing — which is precisely how
+     * a renderer failure survived several launches looking like a splash-timing
+     * problem. Both shapes are read, so this cannot go quiet again on either
+     * side of an upgrade.
+     */
+    win.webContents.on('console-message', (...args: unknown[]) => {
+      const [first, second, third] = args as [
+        { level?: string | number; message?: string } | undefined,
+        number | undefined,
+        string | undefined,
+      ];
+      const level = typeof first?.level !== 'undefined' ? first.level : second;
+      const message = first?.message ?? third ?? '';
+      const serious = level === 'error' || level === 'warning' || (typeof level === 'number' && level >= 2);
+      if (serious && message) console.error(`[smoke:renderer] ${level}: ${message}`);
+    });
+
+    win.webContents.on('preload-error', (_e, file, error) => {
+      console.error(`[smoke:preload] ${file}: ${error.message}`);
+    });
+
+    win.webContents.on('render-process-gone', (_e, details) => {
+      console.error(`[smoke:renderer] process gone: ${details.reason}`);
     });
   }
 
@@ -359,17 +395,43 @@ function registerIpc(getWindow: () => BrowserWindow | null, onRendererReady: () 
   ipcMain.handle('host:info', () => ({
     appVersion: app.getVersion(),
     electronVersion: process.versions.electron,
+    chromeVersion: process.versions.chrome,
+    nodeVersion: process.versions.node,
     platform: process.platform,
+    arch: process.arch,
     isDev: IS_DEV,
     repositoryUrl: readRepositoryUrl(),
     forceFirstRun: process.env.EIS_FORCE_FIRST_RUN === '1',
   }));
 
-  // One runtime per host process. Events are pushed to the focused window.
-  const runtime = new ClaudeCliRuntime((event) => {
+  /*
+   * One runtime manager per host process, replacing the direct Claude transport.
+   *
+   * Every `advisor:*` channel below is unchanged — same names, same payloads, same
+   * return shapes — because the manager implements the same surface the renderer
+   * already consumed. That is the entire visible cost of making the runtime
+   * replaceable, and it is the strongest evidence available that `advisor.ts` was
+   * a real abstraction rather than a Claude interface with neutral names.
+   */
+  const credentials = CredentialStore.default();
+  const runtime = new RuntimeManager((event) => {
     const win = getWindow();
     if (win && !win.isDestroyed()) win.webContents.send('advisor:event', event);
-  });
+  }, credentials);
+
+  /*
+   * Discovery is NOT run here, and that is a deliberate reversal.
+   *
+   * Probing at startup spawned five `--version` subprocesses on every cold
+   * launch, for a result nothing on screen was waiting for — and then the
+   * first-run Discovery step scanned again the moment the founder reached it, so
+   * a first launch paid for the work twice.
+   *
+   * It now runs when something actually asks: the Discovery step, the AI screen,
+   * or an explicit Scan. The cost is that `runtime:snapshot` reports `unknown`
+   * health until then, which is the honest value — nobody has looked — and is
+   * exactly what the three-state capability system exists to represent.
+   */
 
   // Directory picker. Returns a path only; the host never reads the directory
   // here, and the renderer cannot name a path the user did not choose.
@@ -377,7 +439,7 @@ function registerIpc(getWindow: () => BrowserWindow | null, onRendererReady: () 
     const win = getWindow();
     const result = win
       ? await dialog.showOpenDialog(win, {
-          title: 'Select the D.W.I.G.I repository',
+          title: 'Choose your D.W.I.G.I workspace',
           properties: ['openDirectory'],
         })
       : await dialog.showOpenDialog({ properties: ['openDirectory'] });
@@ -433,6 +495,110 @@ function registerIpc(getWindow: () => BrowserWindow | null, onRendererReady: () 
   ipcMain.handle('advisor:cancel', () => runtime.cancel());
   ipcMain.handle('advisor:close', () => runtime.close());
   ipcMain.handle('advisor:diagnostics', () => runtime.getDiagnostics());
+
+  /*
+   * ------------------------------------------------------------ AI providers
+   *
+   * The renderer reads manifests directly from `shared/runtime/manifests.ts`, so
+   * these channels carry only *sampled* state — health, auth status, which brain
+   * is active. Nothing here can return a credential: `submitApiKey` is one-way
+   * inward, and every other channel returns a status enum at most.
+   */
+  ipcMain.handle('runtime:snapshot', () => runtime.snapshot());
+
+  ipcMain.handle('runtime:detect', async () => {
+    await runtime.detectAll();
+    return runtime.snapshot();
+  });
+
+  ipcMain.handle('runtime:checkHealth', (_e, payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.providerId !== 'string') {
+      throw new Error('runtime:checkHealth requires a providerId string');
+    }
+    return runtime.checkHealth(payload.providerId);
+  });
+
+  ipcMain.handle('runtime:setActive', (_e, payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.providerId !== 'string') {
+      throw new Error('runtime:setActive requires a providerId string');
+    }
+    return runtime.setActive(payload.providerId);
+  });
+
+  /*
+   * The one inbound path a secret takes.
+   *
+   * It goes renderer → main → OS keychain and never comes back. The result is a
+   * boolean and an optional reason; there is deliberately no channel that reads a
+   * stored key, so no amount of renderer compromise can retrieve one.
+   */
+  ipcMain.handle('runtime:submitApiKey', (_e, payload: unknown) => {
+    if (
+      !isRecord(payload) ||
+      typeof payload.providerId !== 'string' ||
+      typeof payload.secret !== 'string'
+    ) {
+      throw new Error('runtime:submitApiKey requires providerId and secret strings');
+    }
+    return runtime.submitApiKey(payload.providerId, payload.secret);
+  });
+
+  ipcMain.handle('runtime:disconnect', (_e, payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.providerId !== 'string') {
+      throw new Error('runtime:disconnect requires a providerId string');
+    }
+    return runtime.disconnect(payload.providerId);
+  });
+
+  /*
+   * -------------------------------------------------------------- workspaces
+   *
+   * `validate` and `create` take a path the founder chose through the OS picker,
+   * which is the only way a path enters this application. Nothing here accepts a
+   * path from a deep link — see the protocol handler, which carries no path at all.
+   */
+  ipcMain.handle('workspace:validate', (_e, payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.target !== 'string') {
+      throw new Error('workspace:validate requires a target string');
+    }
+    return validateWorkspace(payload.target);
+  });
+
+  ipcMain.handle('workspace:create', async (_e, payload: unknown) => {
+    if (
+      !isRecord(payload) ||
+      typeof payload.target !== 'string' ||
+      typeof payload.name !== 'string'
+    ) {
+      throw new Error('workspace:create requires target and name strings');
+    }
+    const engine = await resolveEngineSource(process.resourcesPath, APP_DIR);
+    return createWorkspace({
+      target: payload.target,
+      name: payload.name,
+      appVersion: app.getVersion(),
+      engine,
+      now: new Date().toISOString(),
+    });
+  });
+
+  ipcMain.handle('workspace:open', (_e, payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.target !== 'string') {
+      throw new Error('workspace:open requires a target string');
+    }
+    return openWorkspace({
+      target: payload.target,
+      appVersion: app.getVersion(),
+      now: new Date().toISOString(),
+    });
+  });
+
+  ipcMain.handle('workspace:repair', (_e, payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.target !== 'string') {
+      throw new Error('workspace:repair requires a target string');
+    }
+    return repairWorkspace(payload.target);
+  });
 
   /*
    * Repository reader. READ-ONLY: there is no write channel here, and adding one
@@ -551,6 +717,15 @@ function registerIpc(getWindow: () => BrowserWindow | null, onRendererReady: () 
     return conversations.rename(payload.id, payload.title);
   });
 
+  // Session reset (v1.2.3 Part I). A flag flip, never a deletion — see
+  // `ConversationStore.archive`.
+  ipcMain.handle('conversations:archive', (_e, payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.id !== 'string') {
+      throw new Error('conversations:archive requires an id string');
+    }
+    return conversations.archive(payload.id);
+  });
+
   ipcMain.handle('conversations:remove', (_e, payload: unknown) => {
     if (!isRecord(payload) || typeof payload.id !== 'string') {
       throw new Error('conversations:remove requires an id string');
@@ -597,17 +772,107 @@ function readRepositoryUrl(): string | null {
   }
 }
 
+/**
+ * Register `dwigi://` with the operating system.
+ *
+ * In development the executable is Electron itself, so the registration has to
+ * name this project's entry point explicitly or the OS would route every
+ * `dwigi://` link to a bare Electron binary with no idea what to do with it.
+ */
+function registerProtocolClient(): void {
+  if (process.defaultApp && process.argv.length >= 2) {
+    const entry = process.argv[1];
+    if (entry) {
+      app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(entry)]);
+      return;
+    }
+  }
+  app.setAsDefaultProtocolClient(PROTOCOL);
+}
+
+/**
+ * Pull a `dwigi://` URL out of a process argv.
+ *
+ * Windows and Linux deliver deep links as a command-line argument to a second
+ * instance rather than through an event. The argument list also contains flags,
+ * paths, and whatever else the shell passed, so the URL is *found* rather than
+ * assumed to be last — an index-based read would pick up a flag the day Electron
+ * adds one.
+ */
+function deepLinkFromArgv(argv: readonly string[]): string | null {
+  return argv.find((arg) => arg.startsWith(`${PROTOCOL}://`)) ?? null;
+}
+
 // Single-instance: a second launch focuses the existing window.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   let mainWindow: BrowserWindow | null = null;
 
-  app.on('second-instance', () => {
+  registerProtocolClient();
+
+  /**
+   * Route a validated deep link to the renderer.
+   *
+   * ---------------------------------------------------------------------------
+   * WHAT CROSSES, AND WHAT CANNOT
+   * ---------------------------------------------------------------------------
+   * Only `{ intent, param?, path }` — an enum name, an already-validated short
+   * identifier, and a renderer route. The original URL is deliberately **not**
+   * forwarded: nothing downstream has a reason to re-parse it, and a raw URL
+   * sitting in the renderer is an invitation for a future component to do exactly
+   * that and reach a different conclusion than the validator did.
+   *
+   * A rejected link is reported to the founder rather than silently dropped. A
+   * link that appears to do nothing is indistinguishable from a broken
+   * application, and the reason — unknown route, reserved for a later version — is
+   * something they can act on.
+   */
+  const handleDeepLink = (raw: string | null): void => {
+    if (!raw) return;
+
+    const result = parseDeepLink(raw);
+    const win = mainWindow;
+    if (!win || win.isDestroyed()) return;
+
+    if (win.isMinimized()) win.restore();
+    win.focus();
+
+    if (!result.ok) {
+      // Logged with the reason but WITHOUT the URL. A malicious link is untrusted
+      // input, and writing it into a log the founder may later paste into an issue
+      // would carry it further than it should go.
+      console.error(`[eis] deep link rejected (${result.kind}): ${result.reason}`);
+      win.webContents.send('deeplink:rejected', { kind: result.kind, reason: result.reason });
+      return;
+    }
+
+    const route = routeForIntent(result.intent);
+    if (!route) {
+      console.error(`[eis] deep link intent "${result.intent.intent}" has no screen mapped`);
+      return;
+    }
+
+    win.webContents.send('deeplink:navigate', {
+      intent: result.intent.intent,
+      ...(result.intent.param !== undefined ? { param: result.intent.param } : {}),
+      path: route,
+    });
+  };
+
+  app.on('second-instance', (_event, argv) => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
+    // Windows and Linux: the link arrives as an argument to the second instance.
+    handleDeepLink(deepLinkFromArgv(argv));
+  });
+
+  // macOS delivers it as an event, to the running instance, at any time.
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    handleDeepLink(url);
   });
 
   /**
@@ -629,6 +894,42 @@ if (!app.requestSingleInstanceLock()) {
    * diagnosed rather than concealed behind an animation that loops forever.
    */
   const STARTUP_CEILING_MS = 20_000;
+
+  /**
+   * Shortest time the splash stays up.
+   *
+   * Below this it reads as a flicker rather than a deliberate opening — the
+   * window appears to stutter on launch instead of arriving.
+   */
+  const SPLASH_MIN_MS = 900;
+
+  /**
+   * Longest the splash may hold a *ready* application back.
+   *
+   * ---------------------------------------------------------------------------
+   * MEASURED, THEN CHANGED. THE ORIGINAL RULE WAS COSTING TEN SECONDS A LAUNCH.
+   * ---------------------------------------------------------------------------
+   * The first design revealed the window only when the animation had finished AND
+   * the renderer had reported ready — "a fast machine waits for the video, a slow
+   * one keeps the splash up past the end of playback". The second half of that is
+   * still right and is still implemented. The first half was wrong, and it was
+   * only visible once it was instrumented:
+   *
+   *     renderer ready at 686ms
+   *     splash resolved via "ended" after 10048ms
+   *     reveal via both gates at 10884ms
+   *
+   * The application was usable in under a second and every launch spent eleven
+   * seconds on an animation. That is not a slow app; it is a fast app being held
+   * shut, and on a product a founder opens several times a day it is the single
+   * most expensive thing about the first impression.
+   *
+   * So the video is now a *floor and a ceiling* rather than a gate: the splash is
+   * guaranteed to be seen, and it is never allowed to keep a ready window hidden
+   * for longer than this. A slow renderer still holds the splash open, because
+   * that half was always correct.
+   */
+  const SPLASH_MAX_HOLD_MS = 1_800;
 
   void app.whenReady().then(() => {
     // Registered in dev too, now: the splash is served over `app://` from the
@@ -667,8 +968,25 @@ if (!app.requestSingleInstanceLock()) {
 
     let rendererReady = false;
     let videoDone = false;
-    const revealIfBothReady = (): void => {
-      if (rendererReady && videoDone) reveal('both gates');
+
+    /**
+     * Reveal as soon as the application is genuinely usable, honouring the floor.
+     *
+     * Three ways in, and each is a real state rather than a fallback:
+     *   - renderer ready and the floor elapsed  → the normal path
+     *   - video ended and renderer ready        → a renderer slower than the video
+     *   - the ceiling                           → something never reported
+     */
+    const revealIfReady = (why: string): void => {
+      if (!rendererReady) return;
+      const elapsed = Date.now() - launchedAt;
+      if (elapsed >= SPLASH_MIN_MS) {
+        reveal(why);
+        return;
+      }
+      // Ready early. Hold for the remainder of the floor so the opening reads as
+      // intentional rather than as a stutter.
+      setTimeout(() => reveal(`${why} (after floor)`), SPLASH_MIN_MS - elapsed);
     };
 
     registerIpc(
@@ -678,7 +996,9 @@ if (!app.requestSingleInstanceLock()) {
           console.error(`[smoke] renderer ready at ${Date.now() - launchedAt}ms`);
         }
         rendererReady = true;
-        revealIfBothReady();
+        revealIfReady('renderer ready');
+        // Ceiling on how long a *finished* app may be held behind the animation.
+        setTimeout(() => revealIfReady('splash hold ceiling'), SPLASH_MAX_HOLD_MS);
       }
     );
 
@@ -697,15 +1017,28 @@ if (!app.requestSingleInstanceLock()) {
     if (!splash) {
       // Could not even create the window. Nothing to wait for.
       videoDone = true;
-      revealIfBothReady();
+      revealIfReady('no splash window');
     } else {
       void splash.finished.then(() => {
         videoDone = true;
-        revealIfBothReady();
+        revealIfReady('video ended');
       });
     }
 
     setTimeout(() => reveal('startup ceiling'), STARTUP_CEILING_MS);
+
+    /*
+     * Cold start from a link: the application was launched *by* `dwigi://…`.
+     *
+     * Deferred until the renderer reports ready, because a navigation sent to a
+     * window that has not mounted is delivered to nothing and lost — the link
+     * would appear to have opened the app and then done nothing at all, which is
+     * the most confusing possible outcome.
+     */
+    const coldStartLink = deepLinkFromArgv(process.argv);
+    if (coldStartLink) {
+      mainWindow.webContents.once('did-finish-load', () => handleDeepLink(coldStartLink));
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {

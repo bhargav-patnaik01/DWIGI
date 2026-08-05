@@ -1,0 +1,60 @@
+{
+  "name": "read_file",
+  "version": "1.0.0",
+  "category": "filesystem",
+  "description": "Read the contents of one file inside the workspace. The only way this runtime is permitted to learn what a file contains — nothing infers or guesses file content from a name, an extension, or what such a file typically holds.",
+  "read_only": true,
+  "requires_confirmation": false,
+  "risk_level": "low",
+  "timeout_ms": 10000,
+  "input_schema": {
+    "type": "object",
+    "required": ["path"],
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Path to the file, relative to the workspace root. Absolute paths and any path resolving outside the workspace root are refused."
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Line number to start reading from (0-indexed). Omit to start at the top. Use with `limit` to page through a file too large to read in one call."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Maximum number of lines to return. Omit to read to the end of the file, subject to `max_bytes`."
+      },
+      "encoding": {
+        "type": "string",
+        "enum": ["utf-8", "utf-16le", "latin1"],
+        "default": "utf-8",
+        "description": "Text encoding to decode the file as. A file that fails to decode under the requested encoding returns an error rather than best-effort mangled text."
+      }
+    },
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["path", "content", "truncated", "total_lines"],
+    "properties": {
+      "path": { "type": "string", "description": "The resolved, workspace-relative path actually read." },
+      "content": { "type": "string", "description": "The file's text, for the requested range." },
+      "truncated": {
+        "type": "boolean",
+        "description": "True if `limit` or `max_bytes` cut the result short of the file's full content. A truncated read must never be treated as the whole file."
+      },
+      "total_lines": { "type": "integer", "description": "Total line count in the file, independent of what was returned." },
+      "byte_size": { "type": "integer", "description": "Size of the file on disk, in bytes." }
+    },
+    "additionalProperties": false
+  },
+  "errors": [
+    { "code": "not_found", "description": "No file exists at the resolved path." },
+    { "code": "is_directory", "description": "The path resolves to a directory, not a file." },
+    { "code": "outside_workspace", "description": "The path resolves outside the workspace root and was refused before any filesystem access was attempted." },
+    { "code": "binary_content", "description": "The file does not decode as text under the requested encoding — likely a binary asset. Returned rather than guessed at." },
+    { "code": "too_large", "description": "The file exceeds this runtime's single-read size ceiling. Retry with `offset`/`limit` to page through it." }
+  ],
+  "safety_notes": "Read-only and side-effect-free: this tool never creates, modifies, or deletes anything, and never executes file content. Path resolution happens before any filesystem call is made, so `outside_workspace` is a refusal, not a failed attempt. A caller that needs to confirm a file exists before acting on it should call this tool rather than assuming — CLAUDE.md's rule against fabricating file contents applies to every consumer of this schema, not only to the reference implementation."
+}

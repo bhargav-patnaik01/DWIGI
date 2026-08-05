@@ -86,3 +86,70 @@ export function shouldShowWelcome(input: FirstRunInput): boolean {
   if (input.onboardingStarted) return false;
   return true;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Setup completeness                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What is still missing before the application can be used at all.
+ *
+ * ---------------------------------------------------------------------------
+ * v1.0.1 HAD ONE PREREQUISITE. THERE ARE NOW THREE.
+ * ---------------------------------------------------------------------------
+ * A workspace to keep the work in, an AI to think with, and — the original one —
+ * a Business Memory the advisor has built. A founder missing any of them cannot
+ * hold a deliberation, and the old behaviour of dropping them into Chat with a
+ * live composer and no explanation was the specific failure Phase 2 exists to fix.
+ *
+ * Returned as *which step is outstanding* rather than as a boolean, so the flow
+ * can resume where it stopped instead of restarting. Someone who chose a folder,
+ * quit, and came back should not be asked to choose it again.
+ *
+ * Pure, and here rather than inside the component, so the rule can be exercised
+ * without mounting a React tree — the same reasoning that put `shouldShowWelcome`
+ * in this file.
+ */
+export type SetupStage = 'workspace' | 'ai' | 'memory' | 'complete';
+
+export interface SetupInput {
+  hasWorkspace: boolean;
+  /** True once an AI has been selected to power the council. */
+  hasActiveBrain: boolean;
+  snapshotLoaded: boolean;
+  memoryPresent: boolean;
+  onboardingStarted: boolean;
+  memoryScope: MemoryScope;
+  forced: boolean;
+}
+
+export function setupStage(input: SetupInput): SetupStage {
+  /*
+   * Executive Learning short-circuits everything below the AI.
+   *
+   * That mode exists for a founder who may have no business at all, so demanding
+   * a Business Memory before they can ask a general question would be the
+   * interface arguing with a choice they just made. An AI is still required —
+   * without one there is nothing to ask.
+   */
+  if (input.memoryScope === 'learning') {
+    if (!input.hasWorkspace) return 'workspace';
+    if (!input.hasActiveBrain) return 'ai';
+    return 'complete';
+  }
+
+  if (input.forced) return 'workspace';
+  if (!input.hasWorkspace) return 'workspace';
+  if (!input.hasActiveBrain) return 'ai';
+  // Unknown until the first read. Reporting `memory` here would flash the setup
+  // flow at an established founder on every launch.
+  if (!input.snapshotLoaded) return 'complete';
+  if (input.memoryPresent) return 'complete';
+  if (input.onboardingStarted) return 'complete';
+  return 'memory';
+}
+
+/** Is setup finished? Thin wrapper, for the common case. */
+export function isSetupComplete(input: SetupInput): boolean {
+  return setupStage(input) === 'complete';
+}

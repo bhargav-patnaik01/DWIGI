@@ -85,8 +85,8 @@ export default function DashboardPage() {
         <ScreenHeader title="Dashboard" subtitle="Read-only" />
         <EmptyState
           icon={LayoutDashboard}
-          title="No repository selected"
-          description="Choose the D.W.I.G.I repository directory in Settings."
+          title="No workspace selected"
+          description="Choose your workspace in Settings."
         />
       </>
     );

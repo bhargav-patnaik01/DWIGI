@@ -85,10 +85,18 @@
       /*
        * `cover` crops rather than fits, which is the intent here.
        *
-       * The source is 1280x720 and the window is square. `cover` scales the
+       * The source is 1920x1080 and the window is square. `cover` scales the
        * video until it fills the square — driven by the shorter axis, the
        * height — and the excess width is cut evenly from the left and right.
        * The full height is kept and nothing is letterboxed or squashed.
+       *
+       * The trim is substantial: about 44% of the frame's width sits outside the
+       * window, so the subject has to be authored inside the central square. See
+       * `electron/splash.ts` for the arithmetic.
+       *
+       * Never stretched: `object-fit` preserves the intrinsic ratio. A
+       * `width`/`height` pair with no `object-fit` is the combination that would
+       * squash it, and that is why this rule always names one.
        *
        * The radius is repeated on the element as well as the container because
        * a promoted video layer is not always clipped by its parent.
@@ -97,6 +105,15 @@
         width: 100%;
         height: 100%;
         object-fit: cover;
+        /*
+         * Explicit, though it is the default.
+         *
+         * This is the single property that makes the crop mathematically
+         * centred — equal trim on both sides. Left implicit it reads as
+         * incidental and gets "tidied" away by the first person adding a
+         * focal-point tweak, which would silently bias the crop.
+         */
+        object-position: 50% 50%;
         border-radius: var(--splash-radius);
         display: block;
       }

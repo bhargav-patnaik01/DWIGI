@@ -75,8 +75,8 @@ export default function DecisionsPage() {
         <ScreenHeader title="Decisions" subtitle="Journal" />
         <EmptyState
           icon={Scale}
-          title="No repository selected"
-          description="Choose the D.W.I.G.I repository directory in Settings."
+          title="No workspace selected"
+          description="Choose your workspace in Settings."
         />
       </>
     );

@@ -44,15 +44,32 @@ import { BrowserWindow } from 'electron';
 const VIDEO_TIMEOUT_MS = 14_000;
 
 /**
- * Square, at the source video's own height.
+ * Square, by design.
  *
- * `start.mp4` is 1280x720. The window keeps the full 720 of height and matches
- * the width to it, so the page's `object-fit: cover` crops 280 source pixels
- * evenly from each side. Scaled to 360 logical pixels, which is a splash rather
- * than a second application window.
+ * ---------------------------------------------------------------------------
+ * THE CROP IS INTENTIONAL, AND IT IS NOT SMALL
+ * ---------------------------------------------------------------------------
+ * `start.mp4` is 1920x1080 — 16:9. The window is square, and the page's
+ * `object-fit: cover` scales the video by its shorter axis (the height) and
+ * trims the excess width evenly from both sides:
  *
- * Nothing here reads the video's real dimensions — `cover` produces a correct
- * centre crop for any source, so replacing the asset needs no change.
+ *     1080 -> 360 logical (scale 1/3),  1920 -> 640 logical
+ *     640 shown in 360  ->  280 logical px trimmed, 140 per side
+ *
+ * So roughly 44% of the frame's width is outside the window. That is a
+ * deliberate composition choice rather than an accident: the splash reads as an
+ * app mark rather than as a video player, and the source is authored so the
+ * subject sits inside the central square.
+ *
+ * **Anything that must be seen belongs in the middle 1080x1080 of the frame.**
+ * That is the constraint a replacement asset has to satisfy, and it is the one
+ * thing worth checking before swapping the file.
+ *
+ * The trim is symmetric because `object-position` is the default 50% 50%, which
+ * the page states explicitly so it cannot be tuned away by accident.
+ *
+ * 360 logical pixels. Electron sizes windows in logical pixels, so this is
+ * correct on high-DPI displays with no scale factor applied anywhere.
  */
 const SPLASH_SIZE = 360;
 

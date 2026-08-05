@@ -1,19 +1,30 @@
-# Known limitations — v1.0.1
+# Known limitations — v1.3.0
 
-Everything here is observed, not speculative. This is V1 and under active development; the list is meant to set expectations honestly rather than to look short.
+Everything here is observed, not speculative. This is under active development; the list is meant to set expectations honestly rather than to look short.
 
 ---
 
 ## Windows binary
 
-> **The Windows V1 build is currently unsigned. Windows SmartScreen or
-> organizational Application Control policies may warn about or block the
-> application. If the binary is blocked, use the source installation instead.
-> Do not disable your system's security protections.**
+> **This build is unsigned. Windows SmartScreen or organizational Application
+> Control policies may warn about or block the application. If the binary is
+> blocked, use the source installation instead. Do not disable your system's
+> security protections.**
 
-Signing status: **UNSIGNED**. This is a deliberate decision for V1, not a defect in the build.
+Signing status: **UNSIGNED**. This is a deliberate decision for this release, not a defect in the build.
 
-**The executable's version metadata may report Electron rather than D.W.I.G.I.** electron-builder performs icon stamping, version metadata, and signing as a single step, and that step cannot complete on a machine unable to create symlinks while extracting its own toolchain. Where it does not complete, Windows file properties show `Electron 34.5.8` by `GitHub, Inc.` The application itself is unaffected — the payload is correct and behaves normally — but an unsigned *and* unbranded executable gives a user little to distinguish it from a repackaged Electron app. If you build your own binary to distribute, enable Windows Developer Mode (or run the packaging step once elevated) so that step completes.
+**v1.3.0 ships as a portable build only — no installer.** electron-builder's NSIS installer target has to self-execute its own unsigned installer stub once, in-process, to generate and sign the uninstaller. On the machine this release was built on, **Windows Smart App Control** enforces a policy that blocks exactly that self-execution (`HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy`: `CodeIntegrityPolicyEnforcementStatus=2`, confirmed by reproducing the block directly with `Start-Process` — *"An Application Control policy has blocked this file"*). This is a property of the build machine, not of the application: the portable target, which does not need this self-execution step, built and launched cleanly from the same `npm ci` install. **A GitHub Actions release pipeline will become the canonical installer builder** in a future release, run on a machine without this restriction, so the installer is no longer coupled to whichever developer's machine happens to cut the release.
+
+**The executable's version metadata may report Electron rather than D.W.I.G.I.** electron-builder performs icon stamping and version metadata as part of the same packaging step. Where it completes — as it did for this release — Windows file properties correctly report `D.W.I.G.I`, `1.3.0`, and `Copyright © 2026 Bhargav Patnaik`. Where it cannot complete (see above), Windows file properties fall back to `Electron 34.5.8` by `GitHub, Inc.` The application itself is unaffected either way — the payload is correct and behaves normally — but an unsigned *and* unbranded executable gives a user little to distinguish it from a repackaged Electron app.
+
+---
+
+## Hosted Runtime and the read-only Tool Adapter (new in v1.3.0)
+
+- **A Hosted engine (OpenAI, Ollama, LM Studio, OpenRouter, Azure OpenAI) cannot host the Executive Council.** It can read, through eight fixed read-only tools, and it can converse — it cannot write Decision Records or maintain Business Memory, which the Council depends on.
+- **Read-only tool support on Ollama, LM Studio, and OpenRouter is declared `unknown`, not `supported`.** Whether the connected model actually honours structured function-calling is a property of which model is loaded, not of the transport, and is not verified generically. The tools are still offered; if the model ignores them, the connection simply behaves as plain conversation.
+- **Azure OpenAI is listed but not yet connectable.** Its manifest and request format are complete; the connect-time UI for resource name, deployment name, and API version has not been built.
+- **No Trusted Session.** Nothing a Hosted engine can call ever needs approval, by construction — all eight tools are read-only — so there is no "Always Allow" concept to build or to have skipped by accident.
 
 ---
 
@@ -52,5 +63,5 @@ Signing status: **UNSIGNED**. This is a deliberate decision for V1, not a defect
 
 ## Platform
 
-- The desktop application drives the Claude Code CLI as a child process and cannot substitute for it. A working, authenticated Claude Code installation is required.
+- The Executive Council requires a Native engine — Claude Code or Gemini CLI, run as a child process — and cannot substitute a Hosted engine for it (see Hosted Runtime, above). A working, authenticated Native engine installation is required to use the Council.
 - Built and tested on Windows with Node 24. macOS and Linux packaging targets are configured but have not been exercised.

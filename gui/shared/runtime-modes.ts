@@ -147,6 +147,29 @@ export interface CouncilMode {
   enabledLenses?: readonly string[];
   /** Absent means `business`. See `MemoryScope`. */
   memory?: MemoryScope;
+  /**
+   * Reason through `/deliberate-isolated` instead of the shared-context default.
+   *
+   * ---------------------------------------------------------------------------
+   * EXPERIMENTAL, AND NOT COMPOSABLE WITH THE OTHER TWO KNOBS
+   * ---------------------------------------------------------------------------
+   * `.claude/commands/deliberate-isolated.md` documents no nested-directive
+   * support — unlike `/learning`, which explicitly accepts `/council`/`/lens`
+   * ahead of the message, `/deliberate-isolated` takes the decision as its whole
+   * argument. Inventing a composition the command was never written to parse
+   * would be this file assuming semantics that belong to `.claude/commands/`,
+   * which is exactly the layering violation the header above forbids.
+   *
+   * So when this is true, `enabledLenses` narrowing and the Learning scope are
+   * both ignored by `routingDirectiveFor`/`scopeDirectiveFor` — never silently
+   * combined into an untested command line. A founder who wants an isolated,
+   * narrowed, or ungrounded deliberation gets one of those, not a guess at what
+   * combining them would do.
+   *
+   * Absent means the shared-context default — unchanged behaviour for every
+   * conversation that predates this field.
+   */
+  isolated?: boolean;
 }
 
 /** Exactly one canonical lens answers. No other lens is convened. */
@@ -219,6 +242,18 @@ export function councilMode(
 
 export function lensMode(lensId: string): LensMode {
   return { kind: 'lens', lensId };
+}
+
+/**
+ * The isolated-reasoning Council mode.
+ *
+ * Deliberately takes no `enabled` argument, unlike `councilMode`. Narrowing and
+ * isolation compose in principle but not in the shipped commands (see
+ * `CouncilMode.isolated`), so this constructor does not offer a parameter that
+ * `routingDirectiveFor` would silently discard.
+ */
+export function isolatedCouncilMode(): CouncilMode {
+  return { kind: 'council', isolated: true };
 }
 
 /**
@@ -325,6 +360,9 @@ export function parseRuntimeMode(value: unknown): RuntimeMode {
  * them is the only interesting thing in this file.
  */
 function scopeDirectiveFor(mode: RuntimeMode): string | null {
+  // See `CouncilMode.isolated`: composition with `/learning` is undocumented,
+  // so an isolated Council never emits it, whatever the stored scope says.
+  if (mode.kind === 'council' && mode.isolated) return null;
   return memoryScopeOf(mode) === 'learning' ? '/learning' : null;
 }
 
@@ -333,6 +371,10 @@ function scopeDirectiveFor(mode: RuntimeMode): string | null {
  */
 function routingDirectiveFor(mode: RuntimeMode): string | null {
   if (mode.kind === 'lens') return `/lens ${mode.lensId}`;
+  // Isolated takes over routing entirely — see `CouncilMode.isolated`. Checked
+  // before `enabledLenses` so a narrowed pool can never be silently combined
+  // with a command that does not document accepting one.
+  if (mode.isolated) return '/deliberate-isolated';
   const enabled = mode.enabledLenses;
   if (!enabled || enabled.length === 0) return null;
   return `/council ${enabled.join(',')}`;
@@ -370,6 +412,7 @@ function routingDirectiveFor(mode: RuntimeMode): string | null {
  *   learning + full pool   → /learning
  *   learning + narrowed    → /learning /council ceo,cfo
  *   learning + one lens    → /learning /lens cfo
+ *   isolated (any scope)   → /deliberate-isolated   (see `CouncilMode.isolated`)
  */
 export function directiveFor(mode: RuntimeMode): string | null {
   const scope = scopeDirectiveFor(mode);

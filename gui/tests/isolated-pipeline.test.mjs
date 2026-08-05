@@ -143,24 +143,93 @@ test('orchestration lives in the repository, never in the cockpit', () => {
   }
 });
 
-test('no GUI source references the experiment', () => {
-  // The cockpit must not be able to select the experimental pipeline: it is an
-  // engine-side experiment, and a UI affordance would make it a shipped feature.
+/*
+ * ---------------------------------------------------------------------------
+ * THIS TEST WAS INVERTED IN v1.2.3, ON EXPLICIT INSTRUCTION
+ * ---------------------------------------------------------------------------
+ * It used to forbid any GUI source from mentioning `deliberate-isolated` at
+ * all, on the reasoning that "the cockpit must not be able to select the
+ * experimental pipeline... a UI affordance would make it a shipped feature."
+ * That reasoning was sound for what v1.2.3 asked before this: silent,
+ * undisclosed access. It stopped being sound the moment a founder explicitly
+ * asked for exactly that affordance — Executive Sessions Part G wires
+ * `/deliberate-isolated` into the Session Board as an isolated-Council mode.
+ *
+ * Deleting the test outright would throw away the property worth keeping:
+ * this experiment must never become the *default*, and never run *silently*.
+ * So the assertion is restated as those two things, checked directly, rather
+ * than as "the string does not appear" — which the new feature necessarily
+ * violates by design and which was never really the point.
+ */
+test('the experiment is reachable only through an explicit, disclosed opt-in', () => {
   const roots = ['src', 'electron', 'shared'];
-  const offenders = [];
+  const referencing = [];
 
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
       else if (/\.tsx?$/.test(entry.name)) {
-        if (readFileSync(full, 'utf8').includes('deliberate-isolated')) offenders.push(full);
+        if (readFileSync(full, 'utf8').includes('deliberate-isolated')) referencing.push(full);
       }
     }
   };
-
   for (const root of roots) walk(path.join(GUI, root));
-  assert.deepEqual(offenders, [], 'GUI sources must not reference the experiment');
+
+  // A named, bounded set — not scattered composition logic. Adding a fourth
+  // reference should be a deliberate decision, not something that happens
+  // unnoticed; this list is the thing to extend on purpose if it ever needs to.
+  const expected = [
+    path.join(GUI, 'shared', 'runtime-modes.ts'),
+    path.join(GUI, 'shared', 'conversations.ts'),
+    path.join(GUI, 'shared', 'sessions.ts'),
+    path.join(GUI, 'src', 'app', 'page.tsx'),
+    path.join(GUI, 'src', 'components', 'chat', 'IsolatedCouncilNotice.tsx'),
+  ];
+  for (const file of referencing) {
+    assert.ok(
+      expected.includes(file),
+      `${file} references the experiment outside the sanctioned set — is this deliberate?`
+    );
+  }
+
+  // Never the default. The whole application ships one hardcoded default mode,
+  // and it must not carry the flag that selects an unvalidated pipeline for
+  // every founder who has changed nothing.
+  const runtimeModes = readFileSync(path.join(GUI, 'shared', 'runtime-modes.ts'), 'utf8');
+  const defaultBlock = /export const DEFAULT_COUNCIL_MODE: CouncilMode = \{[^}]*\};/.exec(
+    runtimeModes
+  );
+  assert.ok(defaultBlock, 'could not find the default council mode');
+  assert.ok(
+    !defaultBlock[0].includes('isolated'),
+    'the default Council mode must never carry the isolated flag'
+  );
+
+  const conversations = readFileSync(path.join(GUI, 'shared', 'conversations.ts'), 'utf8');
+  const conversationDefault = /export const COUNCIL_CONVERSATION_MODE: ConversationMode = \{[^}]*\};/.exec(
+    conversations
+  );
+  assert.ok(conversationDefault, 'could not find the default conversation mode');
+  assert.ok(
+    !conversationDefault[0].includes('isolated'),
+    'the default conversation mode must never carry the isolated flag'
+  );
+
+  // Never silent. Every path that can produce the isolated directive must sit
+  // beside a standing, non-dismissible disclosure — the same bar
+  // `LensScopeNotice` already holds single-agent chat to.
+  const notice = readFileSync(
+    path.join(GUI, 'src', 'components', 'chat', 'IsolatedCouncilNotice.tsx'),
+    'utf8'
+  );
+  assert.match(notice, /experimental/i, 'the isolated mode notice must say it is experimental');
+  assert.match(notice, /full/i, 'the notice must disclose the forced budget');
+  // No dismiss *affordance* — a close button, an onDismiss handler, a hidden
+  // state. Checked structurally rather than by banning the word "dismiss",
+  // which also appears in the doc comment explaining why there isn't one.
+  assert.ok(!/onDismiss|onClose|<button[^>]*[×✕xX]<\/button>/.test(notice));
+  assert.ok(!/useState\(false\)/.test(notice), 'no hidden/shown state to dismiss into');
 });
 
 /* -------------------------------------------------------------------------- */

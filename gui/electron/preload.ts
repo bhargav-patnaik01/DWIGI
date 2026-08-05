@@ -24,6 +24,8 @@ import type {
 } from '../shared/conversations';
 import type { RepositorySnapshot } from '../shared/repo';
 import type { RuntimeMode } from '../shared/runtime-modes';
+import type { RuntimeHealth, RuntimeSnapshot } from '../shared/runtime/contract';
+import type { WorkspaceManifest, WorkspaceValidation } from '../shared/workspace';
 
 const bridge: HostBridge = {
   host: {
@@ -62,6 +64,62 @@ const bridge: HostBridge = {
       ipcRenderer.on('advisor:event', wrapped);
       return () => {
         ipcRenderer.removeListener('advisor:event', wrapped);
+      };
+    },
+  },
+  runtime: {
+    snapshot: () => ipcRenderer.invoke('runtime:snapshot') as Promise<RuntimeSnapshot>,
+    detect: () => ipcRenderer.invoke('runtime:detect') as Promise<RuntimeSnapshot>,
+    checkHealth: (providerId: string) =>
+      ipcRenderer.invoke('runtime:checkHealth', { providerId }) as Promise<RuntimeHealth>,
+    setActive: (providerId: string) =>
+      ipcRenderer.invoke('runtime:setActive', { providerId }) as Promise<{
+        ok: boolean;
+        reason?: string;
+      }>,
+    // One-way inward. There is no corresponding read, by design.
+    submitApiKey: (providerId: string, secret: string) =>
+      ipcRenderer.invoke('runtime:submitApiKey', { providerId, secret }) as Promise<{
+        ok: boolean;
+        reason?: string;
+      }>,
+    disconnect: (providerId: string) =>
+      ipcRenderer.invoke('runtime:disconnect', { providerId }) as Promise<void>,
+  },
+  workspace: {
+    validate: (target: string) =>
+      ipcRenderer.invoke('workspace:validate', { target }) as Promise<WorkspaceValidation>,
+    create: (target: string, name: string) =>
+      ipcRenderer.invoke('workspace:create', { target, name }) as Promise<{
+        ok: boolean;
+        reason?: string;
+      }>,
+    open: (target: string) =>
+      ipcRenderer.invoke('workspace:open', { target }) as Promise<{
+        validation: WorkspaceValidation;
+        manifest: WorkspaceManifest | null;
+        manifestNotice: string | null;
+      }>,
+    repair: (target: string) =>
+      ipcRenderer.invoke('workspace:repair', { target }) as Promise<{ repaired: string[] }>,
+  },
+  deeplink: {
+    onNavigate: (listener: (event: { intent: string; param?: string; path: string }) => void) => {
+      // Wrapped so the renderer never receives the `IpcRendererEvent`, which
+      // carries a `sender` capable of reaching back into the host.
+      const wrapped = (_e: unknown, payload: { intent: string; param?: string; path: string }) =>
+        listener(payload);
+      ipcRenderer.on('deeplink:navigate', wrapped);
+      return () => {
+        ipcRenderer.removeListener('deeplink:navigate', wrapped);
+      };
+    },
+    onRejected: (listener: (event: { kind: string; reason: string }) => void) => {
+      const wrapped = (_e: unknown, payload: { kind: string; reason: string }) =>
+        listener(payload);
+      ipcRenderer.on('deeplink:rejected', wrapped);
+      return () => {
+        ipcRenderer.removeListener('deeplink:rejected', wrapped);
       };
     },
   },
@@ -111,6 +169,10 @@ const bridge: HostBridge = {
       >,
     rename: (id: string, title: string) =>
       ipcRenderer.invoke('conversations:rename', { id, title }) as Promise<
+        ConversationResult<ConversationSummary>
+      >,
+    archive: (id: string) =>
+      ipcRenderer.invoke('conversations:archive', { id }) as Promise<
         ConversationResult<ConversationSummary>
       >,
     remove: (id: string) =>

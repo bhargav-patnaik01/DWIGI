@@ -25,11 +25,25 @@ import type {
   PersistedMessage,
 } from './conversations';
 import type { RepositorySnapshot } from './repo';
+import type { RuntimeHealth, RuntimeSnapshot } from './runtime/contract';
+import type { WorkspaceManifest, WorkspaceValidation } from './workspace';
 
 export interface HostInfo {
   appVersion: string;
   electronVersion: string;
+  /**
+   * Chromium and Node versions behind this build.
+   *
+   * Added for the About screen's collapsed *Runtime information* section, which
+   * is where implementation detail belongs — visible on request, never as the
+   * first thing a founder reads. Diagnostics is unchanged and continues to
+   * report what it always did.
+   */
+  chromeVersion: string;
+  nodeVersion: string;
   platform: string;
+  /** CPU architecture, e.g. `x64`. Shown beside the operating system. */
+  arch: string;
   isDev: boolean;
   /**
    * Repository URL from the application's own package metadata, or null.
@@ -87,6 +101,68 @@ export interface HostBridge {
     onEvent(listener: (event: AdvisorEvent) => void): () => void;
   };
   /**
+   * The AI runtime layer.
+   *
+   * ---------------------------------------------------------------------------
+   * EVERY METHOD HERE IS ONE-WAY WITH RESPECT TO SECRETS
+   * ---------------------------------------------------------------------------
+   * `submitApiKey` carries a secret inward and returns a boolean. There is
+   * deliberately **no** method that reads a stored credential, and none that
+   * returns one in any form — so the renderer cannot retrieve a key even if a
+   * component asked, and a compromised renderer has nothing to exfiltrate
+   * (ADR-013 §F rule 1).
+   *
+   * Provider *manifests* are not fetched here. The renderer imports them directly
+   * from `shared/runtime/manifests.ts`, because the first-run screen must be able
+   * to describe a provider before any host round-trip has completed.
+   */
+  runtime: {
+    /** Sampled state for every provider. Cheap; does not probe. */
+    snapshot(): Promise<RuntimeSnapshot>;
+    /** Re-run detection across all providers, then return the new snapshot. */
+    detect(): Promise<RuntimeSnapshot>;
+    /** Probe one provider now — the Test Connection action. */
+    checkHealth(providerId: string): Promise<RuntimeHealth>;
+    /** Choose the Active Brain. Refused, with a reason, for a non-Council runtime. */
+    setActive(providerId: string): Promise<{ ok: boolean; reason?: string }>;
+    /** Store and verify an API key. The secret travels in and never comes back. */
+    submitApiKey(
+      providerId: string,
+      secret: string
+    ): Promise<{ ok: boolean; reason?: string }>;
+    /** Forget a provider's credential and stand it down. */
+    disconnect(providerId: string): Promise<void>;
+  };
+  /**
+   * Workspace lifecycle.
+   *
+   * `target` is always a path the founder chose through the OS picker. No deep
+   * link, and no renderer-composed string, ever reaches these methods.
+   */
+  workspace: {
+    validate(target: string): Promise<WorkspaceValidation>;
+    create(target: string, name: string): Promise<{ ok: boolean; reason?: string }>;
+    open(target: string): Promise<{
+      validation: WorkspaceValidation;
+      manifest: WorkspaceManifest | null;
+      manifestNotice: string | null;
+    }>;
+    repair(target: string): Promise<{ repaired: string[] }>;
+  };
+  /**
+   * Deep-link navigation pushed from the host.
+   *
+   * Strictly a navigation channel: an intent name, an already-validated short
+   * identifier, and a renderer route. The original URL is not forwarded, so no
+   * component can re-parse it and reach a different conclusion than the validator.
+   */
+  deeplink: {
+    onNavigate(
+      listener: (event: { intent: string; param?: string; path: string }) => void
+    ): () => void;
+    onRejected(listener: (event: { kind: string; reason: string }) => void): () => void;
+  };
+  /**
    * Repository access. Read methods only — there is deliberately no write
    * channel, because only the advisor may mutate the repository.
    */
@@ -134,6 +210,8 @@ export interface HostBridge {
       sessionId: string
     ): Promise<ConversationResult<ConversationSummary>>;
     rename(id: string, title: string): Promise<ConversationResult<ConversationSummary>>;
+    /** Reset: mark as no longer the current session for its executive or Council slot. */
+    archive(id: string): Promise<ConversationResult<ConversationSummary>>;
     remove(id: string): Promise<ConversationResult<{ id: string }>>;
   };
 }

@@ -5,12 +5,14 @@ import { useRouter } from 'next/navigation';
 import { NAV } from '@/lib/nav';
 import { useUi } from '@/lib/store/ui';
 import { useRepo } from '@/lib/store/repo';
+import { useRuntime } from '@/lib/store/runtime';
 import { getAdvisorTransport } from '@/lib/advisor/transport';
 import { Sidebar } from './Sidebar';
 import { DevelopmentNotice } from './DevelopmentNotice';
 import { DiagnosticsPanel } from '@/components/dev/DiagnosticsPanel';
 import { PermissionGate } from '@/components/chat/PermissionGate';
 import { hasHost } from '@/lib/utils';
+import { getHostInfo } from '@/lib/host-info';
 
 /**
  * Application frame: theme application, global shortcuts, and the sidebar.
@@ -26,6 +28,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const attach = useRepo((s) => s.attach);
   const watch = useRepo((s) => s.watch);
   const [transportAvailable, setTransportAvailable] = useState(false);
+  /** Reason a deep link was refused, shown briefly. Null when there is none. */
+  const [linkNotice, setLinkNotice] = useState<string | null>(null);
 
   /*
    * Attach the repository once per launch, here rather than per screen.
@@ -44,6 +48,57 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     void attach(workspacePath);
     return watch();
   }, [attach, watch, workspacePath]);
+
+  /*
+   * Restore the remembered AI, once, on launch.
+   *
+   * The host holds the Active Brain in memory only — a session cannot outlive the
+   * process — so without this an established founder would be sent back through
+   * first-run setup on every launch. A dev session that never restarts would
+   * never show it, which is exactly the kind of bug that ships.
+   *
+   * A failure is left alone deliberately: if that AI is gone, the AI screen says
+   * so. Silently promoting a different one would change what thinks about
+   * irreversible decisions without telling anyone.
+   */
+  const restored = useRef(false);
+  const rememberedBrain = useUi((s) => s.activeProviderId);
+  useEffect(() => {
+    if (restored.current || !hasHost() || !rememberedBrain) return;
+    restored.current = true;
+    void useRuntime.getState().setActive(rememberedBrain);
+  }, [rememberedBrain]);
+
+  /*
+   * Deep-link navigation.
+   *
+   * ---------------------------------------------------------------------------
+   * THE RENDERER RECEIVES A DESTINATION, NEVER A URL
+   * ---------------------------------------------------------------------------
+   * The host has already validated the link against a closed route table and
+   * resolved it to a screen. What arrives here is `{ intent, param?, path }` — no
+   * URL to re-parse, so no component can reach a different conclusion than the
+   * validator did, and there is nothing here that could be talked into a path.
+   *
+   * A rejected link surfaces as a notice rather than being dropped. A link that
+   * silently does nothing is indistinguishable from a broken application.
+   */
+  useEffect(() => {
+    if (!hasHost()) return;
+    const stopNavigate = window.eis!.deeplink.onNavigate(({ path }) => {
+      router.push(path);
+    });
+    const stopRejected = window.eis!.deeplink.onRejected(({ reason }) => {
+      setLinkNotice(reason);
+      // Cleared on a timer rather than requiring a dismiss: it is informational,
+      // and a founder who followed a stale link does not need a decision to make.
+      setTimeout(() => setLinkNotice(null), 6000);
+    });
+    return () => {
+      stopNavigate();
+      stopRejected();
+    };
+  }, [router]);
 
   /*
    * Tell the host the interface is safe to show.
@@ -114,10 +169,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
    * them. Absent in the browser preview, where the selectors simply never match.
    */
   useEffect(() => {
-    if (!hasHost()) return;
     let cancelled = false;
-    void window.eis!.host.getInfo().then((info) => {
-      if (!cancelled) document.documentElement.dataset.platform = info.platform;
+    void getHostInfo().then((info) => {
+      if (!cancelled && info) document.documentElement.dataset.platform = info.platform;
     });
     return () => {
       cancelled = true;
@@ -166,6 +220,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     // sitting inside one pane. It is a statement about the whole application.
     <div className="flex h-full flex-col overflow-hidden">
       <DevelopmentNotice />
+      {/* Deep-link refusals. A transient strip rather than a dialog: nothing has
+          gone wrong with the founder's work, and a modal would overstate it. */}
+      {linkNotice && (
+        <div className="shrink-0 border-b border-caution/30 bg-caution/5 px-4 py-2 text-[13px] leading-relaxed text-muted animate-fade-up">
+          {linkNotice}
+        </div>
+      )}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <Sidebar transportAvailable={transportAvailable} />
         {/* `relative` is load-bearing: the decision sheet overlays this pane with

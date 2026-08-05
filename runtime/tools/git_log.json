@@ -1,0 +1,59 @@
+{
+  "name": "git_log",
+  "version": "1.0.0",
+  "category": "git",
+  "description": "Read-only commit history — what changed, when, and why it was described that way. The tool for understanding how a file or the whole tree got to its current state, without inferring intent from the diff alone.",
+  "read_only": true,
+  "requires_confirmation": false,
+  "risk_level": "low",
+  "timeout_ms": 10000,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "type": "string",
+        "default": ".",
+        "description": "Directory to run the log from, relative to the workspace root. Must resolve inside a git repository."
+      },
+      "path": {
+        "type": "string",
+        "description": "Limit history to commits touching this file or directory, relative to the workspace root. Omit for the whole repository's history."
+      },
+      "max_entries": {
+        "type": "integer",
+        "default": 30,
+        "minimum": 1,
+        "description": "Upper bound on commits returned, newest first. A history longer than this is truncated and `truncated` is set."
+      }
+    },
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["commits", "truncated"],
+    "properties": {
+      "commits": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["hash", "author", "date", "message"],
+          "properties": {
+            "hash": { "type": "string", "description": "Abbreviated commit hash." },
+            "author": { "type": "string" },
+            "date": { "type": "string", "description": "ISO-8601 commit date." },
+            "message": { "type": "string", "description": "First line of the commit message. Not the full body." }
+          },
+          "additionalProperties": false
+        }
+      },
+      "truncated": { "type": "boolean", "description": "True if `max_entries` cut the history short of the full log." }
+    },
+    "additionalProperties": false
+  },
+  "errors": [
+    { "code": "not_a_repository", "description": "`cwd` does not resolve inside a git repository." },
+    { "code": "outside_workspace", "description": "`cwd` or `path` resolves outside the workspace root and was refused before any git command ran." },
+    { "code": "no_commits", "description": "The repository has no commits yet — a real, unremarkable state for a workspace just created." }
+  ],
+  "safety_notes": "Read-only. Commit messages are reported verbatim and never rewritten, summarized, or interpreted for tone — a message is evidence of what the author said at the time, and paraphrasing it here would be exactly the kind of hindsight relabeling `core/learning_protocol.md` forbids for this repository's own decision records."
+}

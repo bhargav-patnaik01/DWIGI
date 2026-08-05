@@ -1,11 +1,14 @@
 'use client';
 
+import Link from 'next/link';
+
 import { useEffect, useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
 import { ScreenHeader } from '@/components/shared/ScreenHeader';
 import { Button } from '@/components/ui/button';
 import { useUi } from '@/lib/store/ui';
 import { hasHost } from '@/lib/utils';
+import { getHostInfo } from '@/lib/host-info';
 import type { HostInfo } from '@shared/host';
 import { useRepo } from '@/lib/store/repo';
 import { About, AgentManagement } from '@/components/settings/AgentManagement';
@@ -33,7 +36,7 @@ function Row({
 /**
  * Settings.
  *
- * Repository location, theme, two shell actions, Agent Management, and About.
+ * Workspace, theme, two shell actions, Agent Management, and About.
  *
  * ---------------------------------------------------------------------------
  * ONE PREFERENCE HERE REACHES THE ENGINE, AND IT DOES SO EXPLICITLY
@@ -57,9 +60,8 @@ export default function SettingsPage() {
   const [host, setHost] = useState<HostInfo | null>(null);
 
   useEffect(() => {
-    if (!hasHost()) return;
     let cancelled = false;
-    void window.eis!.host.getInfo().then((info) => {
+    void getHostInfo().then((info) => {
       if (!cancelled) setHost(info);
     });
     return () => {
@@ -73,9 +75,9 @@ export default function SettingsPage() {
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-reading px-6 py-6">
           <Row
-            label="Repository location"
-            hint="The D.W.I.G.I repository directory. The advisor reads its
-              operating instructions from here; the cockpit never writes to it."
+            label="Workspace"
+            hint="The folder holding everything about your business. Your board reads from
+              it; this application never writes to it."
           >
             <div className="flex items-center gap-2">
               <span
@@ -109,7 +111,23 @@ export default function SettingsPage() {
             </Button>
           </Row>
 
-          <Row label="Open repository" hint="Reveal the repository in your file manager.">
+          {/* Diagnostics is not in the sidebar — a founder needs it roughly never,
+              and a permanent slot for a troubleshooting screen makes an
+              application feel like a developer tool. Here is where someone looks
+              once they have been asked for a bug report. */}
+          <Row
+            label="Diagnostics"
+            hint="A shareable summary of this installation, for bug reports. Sign-in details and your account name are removed automatically."
+          >
+            <Link
+              href="/diagnostics"
+              className="inline-flex h-8 select-none items-center justify-center rounded-lg border border-line bg-surface px-3 text-[13px] font-medium text-ink transition-colors duration-150 ease-quiet hover:bg-elevated"
+            >
+              Open
+            </Link>
+          </Row>
+
+          <Row label="Open workspace folder" hint="Show this workspace in your file manager.">
             <Button
               size="sm"
               variant="outline"
@@ -120,7 +138,7 @@ export default function SettingsPage() {
             </Button>
           </Row>
 
-          <Row label="Open journal folder" hint="Reveal journal/ in your file manager.">
+          <Row label="Open decisions folder" hint="Show where your Decision Records are kept.">
             <Button
               size="sm"
               variant="outline"
@@ -131,31 +149,21 @@ export default function SettingsPage() {
             </Button>
           </Row>
 
-          <Row label="Runtime">
-            <div className="text-right font-mono text-2xs leading-relaxed text-faint">
-              {host ? (
-                <>
-                  <div>Electron {host.electronVersion}</div>
-                  <div>{host.platform}</div>
-                </>
-              ) : (
-                <div>Browser preview</div>
-              )}
-            </div>
-          </Row>
+          {/* The build row that used to sit here is gone: it led with "Electron
+              34.5.8" and the raw platform token, which is the implementation
+              rather than the product. About now carries all of it, with the
+              application's own identity first and the toolchain behind a
+              disclosure. Nothing was lost — Diagnostics is unchanged. */}
 
           <AgentManagement />
 
           <p className="mt-8 text-[13px] leading-relaxed text-faint">
             This application is a presentation layer. It performs no reasoning, stores no
             business memory, and holds no business rules. Removing it leaves your
-            repository entirely unaffected.
+            workspace entirely unaffected.
           </p>
 
-          <About
-            appVersion={host?.appVersion ?? null}
-            repositoryUrl={host?.repositoryUrl ?? null}
-          />
+          <About host={host} repositoryUrl={host?.repositoryUrl ?? null} />
         </div>
       </div>
     </>

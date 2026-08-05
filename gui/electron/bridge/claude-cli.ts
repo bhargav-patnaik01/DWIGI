@@ -904,6 +904,19 @@ export class ClaudeCliRuntime {
 
   /* -------------------------------------------------------------- diagnostics */
 
+  /**
+   * Outstanding request count, synchronously.
+   *
+   * `getDiagnostics` is async because version detection may need to spawn a
+   * probe; the pending count needs neither I/O nor a promise, and the provider
+   * contract's `pendingPermissionCount()` is synchronous so that a diagnostics
+   * render cannot be made to await a runtime. Reads the same map, so the two
+   * cannot disagree.
+   */
+  pendingPermissionCountSync(): number {
+    return this.pending.size;
+  }
+
   async getDiagnostics(): Promise<AdvisorDiagnostics> {
     return {
       transportVersion: this.version,

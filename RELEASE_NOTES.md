@@ -1,5 +1,63 @@
 # Release notes
 
+## v1.3.0
+
+The first tagged release since v1.0.1. Everything below accumulated across several untagged working phases — Universal Runtime Platform, the product-surface rebuild, packaging/onboarding polish, Executive Sessions, and the Hosted read-only Tool Adapter — and lands here as one release because none of it was tagged as it went. No breaking change to the engine's contract: triage, budgets, the routing gate, the output contract, and the logging trigger are untouched.
+
+### Universal Runtime Platform
+
+`ADR-013` gives the cockpit a real provider abstraction instead of a Claude-Code-shaped one. A `RuntimeProvider` contract (`shared/runtime/contract.ts`) separates *what a runtime can do* (`ProviderCapabilities` — streaming, resume, filesystem, tool calling, engine discovery, and now read-only tools, each `supported` / `unsupported` / `unknown` with a stated reason) from *how it is reached* (`native` — Claude Code, Gemini CLI — versus `hosted` — a chat-completions endpoint). Council eligibility (`isCouncilCapable`) is derived from three declared capabilities, never hardcoded to a provider id, and is asserted by a test tripwire so a provider cannot drift onto or off the Council roster silently.
+
+### Hosted Council Engines
+
+OpenAI, Ollama, LM Studio, OpenRouter, and Azure OpenAI can now be added as connections. None of them can host the Executive Council — that requires reading Business Memory and writing Decision Records, which a hosted chat endpoint has no path to do — and the interface says so, in the same words, for every one of them, rather than leaving the founder to infer it from a greyed-out button.
+
+### Read-only Runtime
+
+A Hosted connection can now genuinely act, within a firm boundary: **read**, never write. A provider-agnostic Tool Adapter (`shared/runtime/tools.ts`) offers eight tools — read a file, list a directory, search the workspace, check git status/diff/log, read Business Memory, and read imported Business Context — through each connection's own structured function-calling mechanism, never through text parsing. Every call is executed against the workspace root with a path-traversal guard (`electron/runtime/tools/execute.ts`), needs no approval because none of them can write, delete, install a package, or reach the network, and a runaway tool-calling loop is capped and reported rather than left to run forever.
+
+What this deliberately does not do: no terminal execution, no writes, no deletes, no package installation, no network side effects, and no remembered consent or auto-approval for anything write-capable. That is reserved for a future Runtime SDK revision, once the permission architecture is expanded to cover it — this release does not authorise building it.
+
+### Provider adapters
+
+Two new hosted providers: **OpenRouter** (many models behind one key, read-only tool support model-dependent and declared `unknown`, never asserted) and **Azure OpenAI** (a customer's own deployment, read-only tools declared `supported` on the same grounds as OpenAI itself). Azure's manifest and request-signing (`api-key` header, not bearer) are complete; its connect-time UI for resource/deployment/API-version is not — it is listed, honestly reported as not yet connectable, and does not silently fail.
+
+### Tool Manifest
+
+`runtime/tools/*.json` — the reasoning engine's own documentation of its tool surface — now states a `risk_level` and `timeout_ms` for every tool, and gained `git_diff` and `git_log` as first-class read-only tools alongside the existing five.
+
+### Executive Sessions
+
+`core/execution_pipeline.md`'s reasoning is unchanged; what is new is a real session lifecycle around it. Each Executive Session (created → idle → thinking → responding → archived → disposed) isolates its own context, so a single-lens consultation and a full Council deliberation never bleed into each other's history. A Session Manager surfaces active sessions, and `/deliberate-isolated` — experimental since v1.0.1 — is promoted out of hiding now that its isolation guarantee has a real manager backing it.
+
+### Installation Assistant
+
+Unchanged this release. A Hosted engine can narrate installing a Native engine (Claude Code or Gemini CLI) in plain language, and can point the founder at documentation — it has never been able to run the install itself, and the read-only Runtime above does not change that: none of the eight tools can write to disk or invoke a package manager.
+
+### Performance and UX
+
+- Continuous background discovery replaces manual "Scan" polling for provider health.
+- Startup splash, application icon, and installer branding are all sourced from tracked assets rather than derived at build time from something else.
+- The AI Control Center distinguishes Council-capable engines from conversation-only ones using the same `isCouncilCapable` derivation the runtime itself uses — one fact, one place it's computed.
+
+### Not in this release
+
+Named here rather than silently absent, because a founder reading "Hosted Runtime" ships should not have to guess what that does and does not include:
+
+- **Business Context ON/OFF renaming and document import.** The underlying `MemoryScope` schema and `/learning` command are unchanged; the UI still reads "Business Mode" / "Executive Learning". Import of founder documents into Business Context has not been built.
+- **Trusted Session "Always Allow" policies.** `electron/bridge/permission-policy.ts` documents, in its own header, a deliberate decision never to pre-approve writes or remember consent between requests. A "Trusted Session" would reverse that. It has not been built, and the read-only Runtime above was scoped specifically to avoid needing it: nothing it can call requires approval in the first place.
+- **Inline permission rendering.** Permission prompts still render as a modal dialog, not inline in the transcript.
+
+### Known limitations
+
+See `KNOWN_LIMITATIONS.md`, including this release's Windows installer note.
+
+### Verification at release
+
+**346 hermetic GUI tests pass** (188 at v1.0.1), including 45 new tests covering hosted runtime injection, the read-only Tool Adapter's capability gating, and its executor's path-traversal guards against a real temporary workspace and a real git repository. Both TypeScript projects typecheck clean. The production build, the Electron package, and the portable Windows build all complete from a from-scratch install (`npm ci`) with no cached artifacts. The Windows **installer** could not be produced on the release machine — see `KNOWN_LIMITATIONS.md` — so this release ships as the portable build only.
+
+---
+
 ## v1.0.1
 
 A correction release. The headline is that **permission prompts now work**, which V1 shipped as an accepted impossibility on the strength of a finding that turned out to be wrong. Everything else is the executive roster becoming a directory, a startup splash, and a second grounding mode for conversations that are not about a company.

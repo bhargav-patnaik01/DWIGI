@@ -7,9 +7,10 @@ import { ScreenHeader } from '@/components/shared/ScreenHeader';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { Unavailable } from '@/components/repo/Unavailable';
 import { Button } from '@/components/ui/button';
+import { SessionBoard } from '@/components/executives/SessionBoard';
 import { useCouncilConfig } from '@/lib/executives';
 import { useChat } from '@/lib/store/chat';
-import { useConversations } from '@/lib/store/conversations';
+import { useExecutiveSessions } from '@/lib/store/sessions';
 import { useUi } from '@/lib/store/ui';
 import { cn } from '@/lib/utils';
 
@@ -41,8 +42,8 @@ import { cn } from '@/lib/utils';
 export default function ExecutivesPage() {
   const router = useRouter();
   const workspacePath = useUi((s) => s.workspacePath);
-  const startNew = useConversations((s) => s.startNew);
   const status = useChat((s) => s.status);
+  const { records: sessionRecords, openSession } = useExecutiveSessions();
 
   const { all, constructive, structural, enabled, isDefault, unavailable, skipped, manifestError, orphanedEntries } =
     useCouncilConfig();
@@ -52,10 +53,20 @@ export default function ExecutivesPage() {
   const busy = status === 'working' || status === 'awaiting-permission';
 
   /**
-   * Open a conversation with one executive.
+   * Open — or resume — a conversation with one executive.
    *
    * ---------------------------------------------------------------------------
-   * THE CONVERSATION IS CREATED HERE, NOT HANDED TO CHAT AS AN INTENT
+   * RESUMES THE EXECUTIVE'S OWN SESSION (v1.2.3 Part F)
+   * ---------------------------------------------------------------------------
+   * Before Executive Sessions, this button always started a fresh conversation,
+   * so "Chat with CFO" three times produced three unrelated CFO threads and none
+   * of them was "the CFO's own session" in any sense a founder could rely on.
+   * `openSession` now resolves the roster's existing non-archived conversation
+   * for this lens and resumes it — reuse is the default, and a new one is
+   * created only when none exists yet or the founder has explicitly reset it.
+   *
+   * ---------------------------------------------------------------------------
+   * THE CONVERSATION IS OPENED HERE, NOT HANDED TO CHAT AS AN INTENT
    * ---------------------------------------------------------------------------
    * The first attempt passed the chosen lens to the Chat screen through a
    * transient store and created the conversation in an effect there. It silently
@@ -65,24 +76,16 @@ export default function ExecutivesPage() {
    * DOM assertion would have, because the screen renders correctly for the mode it
    * believed it was in.
    *
-   * Creating it before navigating removes the hand-off altogether. Chat then has
+   * Resolving it before navigating removes the hand-off altogether. Chat then has
    * nothing to interpret; it draws whichever conversation is active, and the mode
    * travels in the stored conversation record rather than in memory.
-   *
-   * The title uses the canonical name from the matrix, so the sidebar entry traces
-   * back to the repository rather than to a label composed here.
    */
   const openLensChat = async (lens: ExecutiveLens) => {
     if (!workspacePath || busy) return;
-
-    await startNew(workspacePath, {
-      mode: { kind: 'lens', lensId: lens.id },
-      title: `${lens.name} Chat`,
-    });
-
-    // Only navigate if it actually opened. Landing on Chat after a refused
-    // creation would show the previous conversation as though it were the new one.
-    if (useConversations.getState().activeMode.kind === 'lens') router.push('/');
+    const record = sessionRecords.find((r) => r.slot.lensId === lens.id);
+    if (!record) return; // Roster not resolved yet — the click will simply do nothing this instant.
+    await openSession(record.slot);
+    router.push('/');
   };
 
   if (!workspacePath) {
@@ -91,8 +94,8 @@ export default function ExecutivesPage() {
         <ScreenHeader title="Executive Board" />
         <EmptyState
           icon={Users}
-          title="No repository selected"
-          description="Choose the D.W.I.G.I repository directory in Settings. The executive definitions are read from it."
+          title="No workspace selected"
+          description="Choose your workspace in Settings. Your executive board is read from it."
         />
       </>
     );
@@ -200,6 +203,8 @@ export default function ExecutivesPage() {
                 guess. Ask the advisor to stress-test a recommendation to see its real
                 routing.
               </p>
+
+              <SessionBoard />
             </>
           )}
         </div>

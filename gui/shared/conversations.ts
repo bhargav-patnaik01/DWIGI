@@ -77,6 +77,36 @@ export interface ConversationMode {
   /** Canonical lens id when `kind` is `lens`; null for Council conversations. */
   lensId: string | null;
   /**
+   * True for a Council conversation that reasons through `/deliberate-isolated`
+   * instead of the shared-context pipeline.
+   *
+   * ---------------------------------------------------------------------------
+   * WHY THIS IS A FLAG ON THE EXISTING KIND, NOT A THIRD KIND
+   * ---------------------------------------------------------------------------
+   * An isolated conversation is still a Council conversation in every sense that
+   * matters to the rest of this application: it produces one synthesised
+   * recommendation, `lensId` is null, and every screen that asks "is this a
+   * Council thread" (`kind === 'council'`) must keep answering yes. Introducing
+   * `'council-isolated'` as a third `kind` would silently break every one of
+   * those checks — this repository has already paid once for a mode the wrong
+   * screen didn't know about (see `page.tsx`'s note on the lens hand-off bug).
+   *
+   * `undefined`/`false` is the shared-context default and composes no directive
+   * — unchanged behaviour for every conversation that predates this field.
+   *
+   * ---------------------------------------------------------------------------
+   * WHY IT IS FIXED AT CREATION, LIKE `memory`
+   * ---------------------------------------------------------------------------
+   * `/deliberate-isolated` is experimental and forces Full budget on every turn
+   * (`.claude/commands/deliberate-isolated.md`). A founder resuming a thread
+   * three weeks later must get the pipeline that produced what they are reading,
+   * not whatever the global default happens to be that day — the same reasoning
+   * that makes `memory` immutable per conversation.
+   *
+   * Only meaningful when `kind === 'council'`. A `lens` conversation ignores it.
+   */
+  isolated?: boolean;
+  /**
    * Whether this conversation is grounded in the founder's own company.
    *
    * Fixed when the conversation is created and never written again. The global
@@ -165,6 +195,29 @@ export interface ConversationSummary {
    * they were.
    */
   mode: ConversationMode;
+  /**
+   * True when this conversation has been superseded as the "current" session for
+   * its executive or Council slot.
+   *
+   * ---------------------------------------------------------------------------
+   * ARCHIVING IS A RUNTIME-CONTEXT RESET, NEVER A DELETION
+   * ---------------------------------------------------------------------------
+   * Resetting an executive's session (v1.2.3 Part I) must never destroy a
+   * founder's record of what was said — only Business Memory and the journal are
+   * that kind of asset, and neither lives here. Archiving flips this flag and
+   * stops the conversation from being offered as "the CFO's own session" on the
+   * next visit; the transcript stays on disk, still readable from conversation
+   * history, forever.
+   *
+   * "The current session for lens X" is derived structurally — the most recently
+   * active, non-archived conversation with that `mode.lensId` — rather than
+   * tracked by a separate pointer. A pointer that could point at a conversation
+   * this flag had already archived would be two sources of truth for one fact.
+   *
+   * Records written before this field existed read back as `false`: nothing was
+   * ever archived before archiving existed.
+   */
+  archived: boolean;
 }
 
 export interface ConversationTranscript {
@@ -248,12 +301,31 @@ export function readConversationMode(value: unknown): ConversationMode {
    * turn a Learning conversation into a Business one.
    */
   const memory = readMemoryScope(record.memory);
+  // Absence, non-boolean, or `false` all land on the shared-context default —
+  // there is no partially-isolated state to preserve.
+  const isolated = record.isolated === true;
 
-  if (record.kind !== 'lens') return { kind: 'council', lensId: null, memory };
-  if (typeof record.lensId !== 'string') return { kind: 'council', lensId: null, memory };
+  if (record.kind !== 'lens') return { kind: 'council', lensId: null, memory, isolated };
+  if (typeof record.lensId !== 'string') return { kind: 'council', lensId: null, memory, isolated };
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(record.lensId)) {
-    return { kind: 'council', lensId: null, memory };
+    return { kind: 'council', lensId: null, memory, isolated };
   }
-  if (record.lensId.length > 40) return { kind: 'council', lensId: null, memory };
+  if (record.lensId.length > 40) return { kind: 'council', lensId: null, memory, isolated };
+  // `isolated` has no meaning outside a Council conversation. Dropped here
+  // rather than carried, so a lens summary can never claim it.
   return { kind: 'lens', lensId: record.lensId, memory };
+}
+
+/**
+ * Accept the archived flag from storage or from the renderer.
+ *
+ * Anything that is not literally `true` reads back as `false` — the state every
+ * conversation was in before archiving existed, and the same default direction
+ * `readConversationMode` uses for the same reason. The failure mode of guessing
+ * wrong is bounded either way: a stored transcript is never deleted by this
+ * flag, and the founder can always find it in conversation history and open it
+ * directly by id, archived or not.
+ */
+export function readArchived(value: unknown): boolean {
+  return value === true;
 }

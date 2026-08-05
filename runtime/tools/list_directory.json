@@ -1,0 +1,65 @@
+{
+  "name": "list_directory",
+  "version": "1.0.0",
+  "category": "filesystem",
+  "description": "List the entries of one directory inside the workspace. Used to establish what actually exists before reading, searching, or editing it — never to confirm a guess after the fact.",
+  "read_only": true,
+  "requires_confirmation": false,
+  "risk_level": "low",
+  "timeout_ms": 10000,
+  "input_schema": {
+    "type": "object",
+    "required": ["path"],
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Directory path, relative to the workspace root. Use \".\" for the workspace root itself. Absolute paths and any path resolving outside the workspace root are refused."
+      },
+      "recursive": {
+        "type": "boolean",
+        "default": false,
+        "description": "Descend into subdirectories. Off by default — a shallow listing is the common case, and recursive listing of a large tree should be a deliberate choice, not an accident of the default."
+      },
+      "include_hidden": {
+        "type": "boolean",
+        "default": false,
+        "description": "Include dotfiles and dot-directories (.git, .env, etc). Off by default so routine listings are not dominated by tooling artifacts."
+      },
+      "max_entries": {
+        "type": "integer",
+        "default": 500,
+        "minimum": 1,
+        "description": "Upper bound on entries returned. A listing that would exceed this is truncated and `truncated` is set — never silently capped without saying so."
+      }
+    },
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["path", "entries", "truncated"],
+    "properties": {
+      "path": { "type": "string", "description": "The resolved, workspace-relative directory actually listed." },
+      "entries": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["name", "type"],
+          "properties": {
+            "name": { "type": "string", "description": "Entry name, relative to `path`. Includes intermediate path segments when `recursive` is true." },
+            "type": { "type": "string", "enum": ["file", "directory", "symlink", "other"] },
+            "size": { "type": "integer", "description": "Size in bytes. Present only for files." }
+          },
+          "additionalProperties": false
+        }
+      },
+      "truncated": { "type": "boolean", "description": "True if `max_entries` cut the listing short of the directory's full contents." }
+    },
+    "additionalProperties": false
+  },
+  "errors": [
+    { "code": "not_found", "description": "No directory exists at the resolved path." },
+    { "code": "not_a_directory", "description": "The path resolves to a file, not a directory." },
+    { "code": "outside_workspace", "description": "The path resolves outside the workspace root and was refused before any filesystem access was attempted." }
+  ],
+  "safety_notes": "Read-only: reports structure and never creates or removes anything. A directory that does not exist is a normal, expected outcome for a workspace built up over time — see `not_found` — and must be reported as a fact, never inferred as 'probably fine' or papered over. Symlinks are reported as their own type rather than silently resolved and followed, since following one could read outside the workspace root through the back door this tool's path guard is meant to close."
+}

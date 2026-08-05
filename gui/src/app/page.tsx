@@ -9,17 +9,20 @@ import { Composer } from '@/components/chat/Composer';
 import { ActivityTimeline } from '@/components/chat/ActivityTimeline';
 import { ConversationMenu } from '@/components/chat/ConversationMenu';
 import { LensScopeNotice } from '@/components/chat/LensScopeNotice';
+import { IsolatedCouncilNotice } from '@/components/chat/IsolatedCouncilNotice';
 import { MemoryScopeBadge } from '@/components/chat/MemoryScopeBadge';
-import { Welcome } from '@/components/onboarding/Welcome';
+import { FirstRun } from '@/components/onboarding/FirstRun';
 import { getAdvisorTransport } from '@/lib/advisor/transport';
 import { startConversationRecorder } from '@/lib/conversations/recorder';
 import { useChat } from '@/lib/store/chat';
 import { useConversations } from '@/lib/store/conversations';
 import { useUi } from '@/lib/store/ui';
 import { useRepo } from '@/lib/store/repo';
+import { useRuntime } from '@/lib/store/runtime';
 import { useCouncilConfig, useExecutive } from '@/lib/executives';
 import { shouldShowWelcome } from '@shared/onboarding';
 import {
+  isolatedCouncilMode,
   lensMode,
   ONBOARDING_TURN,
   withMemoryScope,
@@ -54,6 +57,7 @@ export default function ChatPage() {
   const defaultMemoryScope = useUi((s) => s.defaultMemoryScope);
 
   const snapshot = useRepo((s) => s.snapshot);
+  const activeProviderId = useRuntime((s) => s.activeProviderId);
 
   const messages = useChat((s) => s.messages);
   const activity = useChat((s) => s.activity);
@@ -208,16 +212,25 @@ export default function ChatPage() {
    * a session the engine has forgotten — which the transport already reports and
    * recovers from — cannot silently return a Learning conversation to Business.
    */
-  const mode: RuntimeMode = useMemo(
-    () =>
-      withMemoryScope(
-        activeMode.kind === 'lens' && activeMode.lensId
-          ? lensMode(activeMode.lensId)
-          : council.mode,
-        activeMode.memory
-      ),
-    [activeMode, council.mode]
-  );
+  const mode: RuntimeMode = useMemo(() => {
+    if (activeMode.kind === 'lens' && activeMode.lensId) {
+      return withMemoryScope(lensMode(activeMode.lensId), activeMode.memory);
+    }
+    /*
+     * Isolated Council sends `/deliberate-isolated` regardless of the founder's
+     * Agent Management narrowing.
+     *
+     * That command documents no support for a nested `/council <ids>` directive
+     * (`.claude/commands/deliberate-isolated.md`), so `council.mode` — which may
+     * carry an `enabledLenses` narrowing — is never used here. Composing the two
+     * would assume a combination the command was never written to parse; see
+     * `CouncilMode.isolated` in `shared/runtime-modes.ts`.
+     */
+    if (activeMode.kind === 'council' && activeMode.isolated) {
+      return withMemoryScope(isolatedCouncilMode(), activeMode.memory);
+    }
+    return withMemoryScope(council.mode, activeMode.memory);
+  }, [activeMode, council.mode]);
 
   /* -------------------------------------------------------------------- send */
   const send = useCallback(
@@ -341,6 +354,7 @@ export default function ChatPage() {
   const busy = status === 'working' || status === 'awaiting-permission';
 
   const isLensChat = activeMode.kind === 'lens';
+  const isIsolatedCouncil = activeMode.kind === 'council' && Boolean(activeMode.isolated);
 
   /* --------------------------------------------------------------- first run */
   const welcome = shouldShowWelcome({
@@ -362,18 +376,22 @@ export default function ChatPage() {
     memoryScope: defaultMemoryScope,
   });
 
-  if (welcome && messages.length === 0) {
-    return (
-      <Welcome
-        onStart={() => void beginOnboarding()}
-        starting={starting}
-        blockedReason={
-          noRuntime
-            ? 'The Claude Code CLI could not be reached. The cockpit drives it as a child process and cannot substitute for it.'
-            : null
-        }
-      />
-    );
+  /*
+   * First run is now broader than "no Business Memory".
+   *
+   * v1.0.1 had one prerequisite — a repository — and asked for it in Settings.
+   * There are now three, and a founder missing any of them cannot use the
+   * application at all: somewhere to keep their work, an AI to think with, and a
+   * board configured. Sending them to Chat with an empty composer and no way to
+   * discover what is missing was the failure this flow exists to remove.
+   *
+   * The engine's own onboarding still owns every question about the business.
+   * This flow stops at the point where the advisor can speak.
+   */
+  const needsSetup = !workspacePath || !activeProviderId || welcome;
+
+  if (needsSetup && messages.length === 0) {
+    return <FirstRun onLaunch={() => void beginOnboarding()} launching={starting} />;
   }
 
   if (blocked && messages.length === 0) {
@@ -382,11 +400,11 @@ export default function ChatPage() {
         <ScreenHeader title="Chat" subtitle="Chief of Staff" />
         <EmptyState
           icon={MessageSquare}
-          title={noRuntime ? 'Runtime not found' : 'No repository selected'}
+          title={noRuntime ? 'Runtime not found' : 'No workspace selected'}
           description={
             noRuntime
               ? 'The Claude Code CLI could not be reached. The cockpit drives it as a child process and cannot substitute for it.'
-              : 'Choose the D.W.I.G.I repository directory in Settings. The advisor reads its operating instructions from there.'
+              : 'Choose your workspace in Settings. Everything your board knows about your business lives there.'
           }
         />
       </>
@@ -406,14 +424,22 @@ export default function ChatPage() {
     ? 'Thinking'
     : isLensChat
       ? `${activeLens?.name ?? activeMode.lensId} · single executive`
-      : council.isDefault
-        ? 'Council · Chief of Staff'
-        : `Council · ${council.enabled.size} of ${council.constructive.length} executives`;
+      : isIsolatedCouncil
+        ? 'Council · isolated reasoning'
+        : council.isDefault
+          ? 'Council · Chief of Staff'
+          : `Council · ${council.enabled.size} of ${council.constructive.length} executives`;
 
   return (
     <>
       <ScreenHeader
-        title={isLensChat ? `${activeLens?.name ?? activeMode.lensId} Chat` : 'Council Chat'}
+        title={
+          isLensChat
+            ? `${activeLens?.name ?? activeMode.lensId} Chat`
+            : isIsolatedCouncil
+              ? 'Council Chat (isolated)'
+              : 'Council Chat'
+        }
         // Read from the conversation's own record, never from the setting.
         badge={<MemoryScopeBadge scope={activeMode.memory} />}
         subtitle={subtitle}
@@ -431,6 +457,10 @@ export default function ChatPage() {
         />
       )}
 
+      {isIsolatedCouncil && (
+        <IsolatedCouncilNotice onReturnToCouncil={returnToCouncil} busy={busy} />
+      )}
+
       <div ref={scroller} onScroll={onScroll} className="flex-1 overflow-y-auto">
         {/* Either the opening state or the transcript — never both. Rendering both
             put an empty screen over its own scroll height and produced a scrollbar
@@ -446,7 +476,9 @@ export default function ChatPage() {
                   ? activeLens?.fields.Owns
                     ? `Ask about anything this executive owns: ${lowerFirst(activeLens.fields.Owns)}`
                     : 'Ask this executive about a decision inside their mandate.'
-                  : 'Ask about a decision you are weighing. Depth is chosen to match what the decision is worth — small questions get short answers.'}
+                  : isIsolatedCouncil
+                    ? 'Ask about a decision. Every turn runs the full board, each executive reasoning in isolation.'
+                    : 'Ask about a decision you are weighing. Depth is chosen to match what the decision is worth — small questions get short answers.'}
               </p>
             </div>
           </div>
@@ -494,7 +526,7 @@ export default function ChatPage() {
         onCancel={cancel}
         placeholder={
           noWorkspace
-            ? 'Select a repository in Settings'
+            ? 'Select a workspace in Settings'
             : isLensChat
               ? `Ask ${activeLens?.name ?? 'this executive'}…`
               : 'Ask the Chief of Staff…'

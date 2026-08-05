@@ -79,6 +79,21 @@ interface UiState {
    */
   defaultMemoryScope: MemoryScope;
 
+  /**
+   * The AI chosen to power the council, remembered across launches.
+   *
+   * The host's runtime manager holds the active provider in memory only, because
+   * a session cannot outlive the process. Without this, every launch would find
+   * no Active Brain and send an established founder back through first-run setup
+   * — the most annoying possible bug and an entirely invisible one in a dev
+   * session that never restarts.
+   *
+   * Re-applied on launch by `AppShell`, which calls `setActive` with it. It is a
+   * *pointer*, exactly like `workspacePath`: if that AI is no longer installed,
+   * the call fails and the AI screen says so rather than silently choosing another.
+   */
+  activeProviderId: string | null;
+
   setTheme(theme: Theme): void;
   toggleTheme(): void;
   setWorkspacePath(path: string | null): void;
@@ -88,6 +103,7 @@ interface UiState {
   setDevForceFirstRun(value: boolean): void;
   markOnboardingStarted(): void;
   setDefaultMemoryScope(scope: MemoryScope): void;
+  setActiveProviderId(id: string | null): void;
 }
 
 /**
@@ -111,6 +127,7 @@ export const useUi = create<UiState>()(
       devForceFirstRun: false,
       onboardingStarted: false,
       defaultMemoryScope: DEFAULT_MEMORY_SCOPE,
+      activeProviderId: null,
 
       setTheme: (theme) => set({ theme }),
       toggleTheme: () => set({ theme: get().theme === 'dark' ? 'light' : 'dark' }),
@@ -127,10 +144,11 @@ export const useUi = create<UiState>()(
       // they are reading as though it were about them.
       setDefaultMemoryScope: (scope) =>
         set({ defaultMemoryScope: readMemoryScope(scope) }),
+      setActiveProviderId: (activeProviderId) => set({ activeProviderId }),
     }),
     {
       name: 'eis-cockpit-ui',
-      version: 3,
+      version: 4,
       // Only these keys survive a restart. Anything derived is recomputed.
       partialize: (state) => ({
         theme: state.theme,
@@ -141,6 +159,7 @@ export const useUi = create<UiState>()(
         devForceFirstRun: state.devForceFirstRun,
         onboardingStarted: state.onboardingStarted,
         defaultMemoryScope: state.defaultMemoryScope,
+        activeProviderId: state.activeProviderId,
       }),
       /**
        * A v1 store predates every field added here.
@@ -158,7 +177,9 @@ export const useUi = create<UiState>()(
           ...state,
           defaultMemoryScope: readMemoryScope(state.defaultMemoryScope),
         };
-        if (version >= 2) return scoped as UiState;
+        // v4 added the remembered AI. Absent on every earlier store, and null is
+        // the correct value: those installations had no concept of choosing one.
+        if (version >= 2) return { activeProviderId: null, ...scoped } as UiState;
         return {
           ...scoped,
           noticeDismissed: false,

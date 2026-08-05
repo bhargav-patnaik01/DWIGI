@@ -1,0 +1,51 @@
+{
+  "name": "git_diff",
+  "version": "1.0.0",
+  "category": "git",
+  "description": "Read-only diff of what has changed, either against the working tree or between two references. Never applies, stages, or reverts anything — see `git_status` for what to run before treating a diff's absence of output as 'nothing changed.'",
+  "read_only": true,
+  "requires_confirmation": false,
+  "risk_level": "low",
+  "timeout_ms": 15000,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "type": "string",
+        "default": ".",
+        "description": "Directory to run the diff from, relative to the workspace root. Must resolve inside a git repository."
+      },
+      "staged": {
+        "type": "boolean",
+        "default": false,
+        "description": "Diff the index against the last commit (what would be committed) rather than the working tree against the index (what is not yet staged)."
+      },
+      "path": {
+        "type": "string",
+        "description": "Limit the diff to one file or directory, relative to the workspace root. Omit to diff everything changed."
+      },
+      "max_bytes": {
+        "type": "integer",
+        "default": 100000,
+        "description": "Upper bound on diff output. A diff exceeding this is truncated and `truncated` is set — a large diff silently cut off and read as complete is worse than one honestly marked partial."
+      }
+    },
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["diff", "truncated", "files_changed"],
+    "properties": {
+      "diff": { "type": "string", "description": "Unified diff text." },
+      "truncated": { "type": "boolean", "description": "True if `max_bytes` cut the diff short." },
+      "files_changed": { "type": "integer", "description": "Count of files touched by this diff, independent of how much of the text was returned." }
+    },
+    "additionalProperties": false
+  },
+  "errors": [
+    { "code": "not_a_repository", "description": "`cwd` does not resolve inside a git repository." },
+    { "code": "outside_workspace", "description": "`cwd` or `path` resolves outside the workspace root and was refused before any git command ran." },
+    { "code": "path_not_found", "description": "`path` does not exist in the working tree." }
+  ],
+  "safety_notes": "Read-only — no `git apply`, no `git checkout`, no reversal capability exists behind this schema at all. A `truncated` diff must never be summarized as though the visible portion were the whole change; `files_changed` is reported precisely so a truncated diff cannot be mistaken for a small one."
+}

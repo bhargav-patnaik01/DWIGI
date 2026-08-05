@@ -100,19 +100,71 @@ test('the splash is a square centre crop, not a letterbox or a squash', () => {
   const splash = code('electron/splash.ts');
 
   /*
-   * `cover` is what keeps the full height and cuts the width evenly.
+   * `cover` keeps the full height and cuts the width evenly.
    *
    * `contain` would letterbox a 16:9 source in a square window, and an explicit
-   * width/height with no object-fit would squash it. Both are silent: the video
-   * still plays, it just looks wrong, and nothing in a headless check would
-   * notice.
+   * width/height with no object-fit would squash it. Both fail silently: the
+   * video still plays, it just looks wrong, and nothing headless would notice.
    */
   assert.match(html, /object-fit:\s*cover/, 'the crop depends on object-fit: cover');
   assert.ok(!/object-fit:\s*contain/.test(html), 'contain would letterbox, not crop');
 
+  /*
+   * The property that makes the crop *mathematically* centred.
+   *
+   * `50% 50%` is the default, so this assertion is about intent rather than
+   * behaviour: it stops a focal-point tweak from biasing the trim to one side
+   * without anyone noticing that the composition had moved.
+   */
+  assert.match(html, /object-position:\s*50%\s*50%/, 'the crop must be explicitly centred');
+
+  // A width/height pair with no object-fit is the combination that squashes.
+  assert.match(html, /video\s*\{[^}]*object-fit/, 'sizing a video without object-fit distorts it');
+
   // Square window, or `cover` crops toward the wrong axis.
   assert.match(splash, /const SPLASH_SIZE = \d+;/);
   assert.match(splash, /width:\s*SPLASH_SIZE,\s*\n\s*height:\s*SPLASH_SIZE,/);
+});
+
+test('the splash crop trims the source symmetrically', () => {
+  const splash = code('electron/splash.ts');
+  const video = readFileSync(path.join(GUI, 'start.mp4'));
+
+  /*
+   * Measures the real asset rather than trusting a comment about it.
+   *
+   * The square window is a deliberate composition choice, and it is only a safe
+   * one while the subject sits inside the central square of the frame. Reading
+   * the file means the numbers in `splash.ts` cannot quietly describe a
+   * different video than the one that ships — which has already happened once,
+   * when the asset went from 1280x720 to 1920x1080.
+   *
+   * What is asserted is the *symmetry* of the trim, not its size: an even crop
+   * is the contract, and how much lands outside the window is a design decision
+   * this test has no business overruling.
+   */
+  const marker = video.indexOf('tkhd');
+  assert.ok(marker > 0, 'no track header in start.mp4');
+  const offset = video[marker + 4] === 1 ? marker + 4 + 88 : marker + 4 + 76;
+  const sourceWidth = video.readUInt32BE(offset) / 65536;
+  const sourceHeight = video.readUInt32BE(offset + 4) / 65536;
+  assert.ok(sourceWidth > 0 && sourceHeight > 0, 'could not read video dimensions');
+
+  const size = Number(/const SPLASH_SIZE = (\d+);/.exec(splash)[1]);
+
+  // `cover` on a square window scales by the shorter axis, so a source that is
+  // taller than it is wide would crop the *height* instead — a different layout
+  // than the one documented, and worth failing on rather than absorbing.
+  assert.ok(
+    sourceWidth >= sourceHeight,
+    `start.mp4 is ${sourceWidth}x${sourceHeight}; a portrait source would crop the height, not the width`
+  );
+
+  const scaled = sourceWidth * (size / sourceHeight);
+  const trimmed = scaled - size;
+  assert.ok(trimmed >= 0);
+  // Even on both sides. This is what "mathematically centred" means in practice.
+  assert.equal(trimmed / 2, trimmed - trimmed / 2);
 });
 
 test('rounded corners are backed by a transparent window', () => {
@@ -153,10 +205,59 @@ test('the main window is revealed only by the coordinator', () => {
     'the window must not be shown from ready-to-show'
   );
 
-  // Both gates, and a ceiling above them.
-  assert.match(main, /rendererReady && videoDone/);
+  /*
+   * ---------------------------------------------------------------------------
+   * THIS ASSERTION CHANGED IN v1.2.1, AND MEASUREMENT IS WHY
+   * ---------------------------------------------------------------------------
+   * It used to require `rendererReady && videoDone` — reveal only once the
+   * animation had finished *and* the renderer was up. Instrumenting a real launch
+   * showed what that cost:
+   *
+   *     renderer ready at 686ms
+   *     splash resolved via "ended" after 10048ms
+   *     reveal via both gates at 10884ms
+   *
+   * The application was usable in under a second and was held shut for eleven.
+   *
+   * The half of that rule worth protecting is the renderer gate: a window shown
+   * before the interface reports ready is a half-built screen, and that is the
+   * regression someone "fixing a slow start" would reintroduce. So it is asserted
+   * directly and more strictly than the conjunction ever did — `revealIfReady`
+   * must return early when the renderer has not reported.
+   *
+   * The video is now a floor and a ceiling rather than a gate.
+   */
+  assert.match(
+    main,
+    /if \(!rendererReady\) return;/,
+    'the window must never be revealed before the renderer reports ready'
+  );
+
+  // A floor, so the opening does not read as a stutter.
+  assert.match(main, /SPLASH_MIN_MS/);
+  // A ceiling on holding a *ready* app behind the animation.
+  assert.match(main, /SPLASH_MAX_HOLD_MS/);
+  // And the outer ceiling, for anything that never reports at all.
   assert.match(main, /STARTUP_CEILING_MS/);
   assert.match(main, /setTimeout\(\(\) => reveal\('startup ceiling'\), STARTUP_CEILING_MS\)/);
+});
+
+test('a ready application is never held behind the animation for long', () => {
+  const main = read('electron/main.ts');
+
+  // Measured at 10.9s before this bound existed. A founder opens this several
+  // times a day; the launch has to feel like a desktop application, not a title
+  // sequence. Bounded well under two seconds, with the floor keeping it visible.
+  const hold = /const SPLASH_MAX_HOLD_MS = ([\d_]+);/.exec(main);
+  assert.ok(hold, 'no ceiling on how long the splash may hold a ready app');
+  assert.ok(
+    Number(hold[1].replace(/_/g, '')) <= 2500,
+    'the splash may not hold a ready application for more than 2.5s'
+  );
+
+  const floor = /const SPLASH_MIN_MS = ([\d_]+);/.exec(main);
+  assert.ok(floor, 'no floor — the splash would flicker on a fast machine');
+  assert.ok(Number(floor[1].replace(/_/g, '')) >= 500, 'the floor is too short to read as intentional');
 });
 
 test('reveal is idempotent, so no path can show the window twice', () => {

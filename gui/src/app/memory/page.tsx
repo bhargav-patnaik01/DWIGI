@@ -42,8 +42,8 @@ export default function MemoryPage() {
         <ScreenHeader title="Memory" subtitle="Read-only" />
         <EmptyState
           icon={BookMarked}
-          title="No repository selected"
-          description="Choose the D.W.I.G.I repository directory in Settings."
+          title="No workspace selected"
+          description="Choose your workspace in Settings."
         />
       </>
     );
@@ -69,7 +69,7 @@ export default function MemoryPage() {
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-reading px-6 py-6">
           {!memory && (
-            <p className="text-[13px] text-faint">Reading repository…</p>
+            <p className="text-[13px] text-faint">Reading your workspace…</p>
           )}
 
           {memory && !memory.ok && (

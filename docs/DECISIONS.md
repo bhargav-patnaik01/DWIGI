@@ -24,6 +24,7 @@ Each Architecture Decision Record (ADR) captures the context, options considered
 - [ADR-010: Progressive Business Memory vs Static Business Context](#adr-010-progressive-business-memory-vs-static-business-context)
 - [ADR-011: Per-Executive Canonical Files vs a Single Executive Matrix](#adr-011-per-executive-canonical-files-vs-a-single-executive-matrix)
 - [ADR-012: Executive Routing Manifest — Separating Participation from Reasoning](#adr-012-executive-routing-manifest--separating-participation-from-reasoning)
+- [ADR-013: Universal Runtime Platform](#adr-013-universal-runtime-platform)
 
 ---
 
@@ -432,3 +433,192 @@ The file-count criterion is therefore **unreachable while executives are separat
 ### Reconsideration Conditions
 
 If independent executive execution is built, revisit whether the manifest should be **generated** from the persona files rather than hand-maintained. It is hand-written today because generation needs a build step this repository does not have, and a generated file checked in beside its source is a drift risk of its own. The consistency tests are the interim mitigation.
+
+---
+
+## ADR-013: Universal Runtime Platform
+
+- **Status**: APPROVED (v1.2) — supersedes ADR-001's single-runtime assumption; see the amendment below
+- **Numbering note**: This decision was requested as "ADR-011." That number is assigned to *Per-Executive Canonical Files*, which is approved and cited in eleven places across `docs/` and `RELEASE_NOTES.md`. Duplicate numbering would break the ledger, so it is filed as ADR-013 with its requested title preserved — the same resolution ADR-010 records for the same situation.
+
+### Context
+
+Claude Code is the runtime, and every layer above it knows so. `ClaudeCliRuntime` is named for it, `AdvisorTransport` was written to be vendor-neutral and has exactly one implementation, and the flags in `spawnForTurn` are Claude's. The stated goal for v1.2 is that a founder can install D.W.I.G.I and use it with whatever AI provider they already have.
+
+### Problem
+
+How should D.W.I.G.I depend on an AI runtime such that the runtime is replaceable, the Executive Council is not, and no provider is privileged by the architecture?
+
+### The finding that reframes the problem
+
+**The Executive Council is currently a capability of the runtime, not of D.W.I.G.I.**
+
+This is not a defect. It is ADR-001 and ADR-006 working exactly as intended: the Council exists because Claude Code, given a working directory, discovers `CLAUDE.md`, obeys it as an operating kernel, resolves `.claude/commands/*.md` as slash commands, and has filesystem tools to read `core/` and write `journal/`. Nothing in `gui/` reasons, by design — which means nothing in `gui/` can *make* a provider reason either.
+
+So "the Runtime is replaceable, the Executive Council is permanent" is only achievable for runtimes that can host the engine. A provider reachable solely as an HTTP chat completion endpoint has no working directory, no instruction-file discovery, and no tools. It can converse. It cannot convene a board, write a Decision Record, or maintain Business Memory.
+
+Part I of the v1.2 brief settles what to do about that, and it settles it against emulation: *never fake unsupported functionality, hide the feature, explain why, never silently degrade.* Applied honestly, that rule forbids presenting such a provider as able to power the Council. This ADR therefore treats Council hosting as a **capability that is declared and gated like any other**, rather than as an assumption every provider is presumed to satisfy.
+
+### Options considered
+
+1. *Option A*: One interface, and every provider must satisfy all of it. Providers that cannot are not supported.
+2. *Option B*: One interface plus a declared capability surface. Providers satisfy what they can; D.W.I.G.I gates features on declarations and states what is unavailable and why.
+3. *Option C*: Option B, plus a Council Host inside `gui/` that reads the engine files and composes them into a system prompt for providers without file discovery.
+
+### Chosen option
+
+**Option B, with Option C specified as the forward path and explicitly not built.**
+
+Option A was rejected because it reduces to "Claude Code only" with extra ceremony — three of the five providers named in the brief would be unsupported, and the capability system would have nothing to express. Option C was rejected **for this release** because a Council Host is a reasoning orchestrator living in the cockpit: it would compose kernel text into prompts, decide what the engine means by a slash command, and become a second authority on the operating contract. That is the precise coupling `gui/README.md`'s three boundaries exist to forbid, and ADR-003's single-interface contract depends on there being one place the Council is defined. Option C is admissible only as a separately-ADR'd subsystem with its own boundary, and it is not admissible as a quiet helper inside a runtime provider.
+
+---
+
+### §A — Runtime Provider Contract
+
+A provider is four objects and a manifest. Nothing else in the application may know a provider's name.
+
+| Object | Owns | Lifetime |
+| :--- | :--- | :--- |
+| `ProviderManifest` | Identity, capability declaration, auth methods, discovery hints | Static, compile-time |
+| `RuntimeProvider` | Detection, authentication, health, session construction | Process |
+| `RuntimeSession` | One conversation: `send`, `respondToPermission`, `cancel`, `close`, event emission | Conversation |
+| `AuthenticationStrategy` | Acquiring and validating credentials for one method | Per attempt |
+| `RuntimeHealth` | Reachability, version, latency, last error | Sampled |
+
+Three contract rules, all load-bearing:
+
+1. **`RuntimeSession` emits the existing `AdvisorEvent` vocabulary and nothing else.** The event union in `shared/advisor.ts` is already vendor-neutral and already the renderer's only input. A provider that needs a new event kind is a change to that contract, reviewed as such — not a provider-local extension. This is what keeps the reducer free of provider branches.
+2. **The manifest is data, not code.** Capability declarations, auth methods, and discovery hints are literals. A registry maps id → manifest + factory, and the GUI reads only the manifest. Adding a provider is one directory plus one registry line.
+3. **`AdvisorTransport` survives unchanged as the renderer-facing contract.** v1.2 does not introduce a second transport abstraction above it; it introduces the provider layer *below* it. The renderer's imports do not change, which is the measure of whether the abstraction was already correct.
+
+### §B — Capability System
+
+The brief asks each provider to declare Required, Optional, and Unsupported capabilities. That framing conflates two directions, and the conflation matters, so this ADR refines it — the same way ADR-009 refined ADR-004's uncomputable percentages.
+
+**A provider does not declare what it requires. It declares what it supports. A *feature* declares what it requires.**
+
+Provider side, three states per capability:
+
+| State | Meaning | Gate outcome for a feature requiring it |
+| :--- | :--- | :--- |
+| `supported` | Verified present for this provider | Feature available |
+| `unsupported` | Verified absent | Feature **hidden**, with a reason available on demand |
+| `unknown` | Not established | Feature **shown and disabled**, with the reason stated |
+
+`unknown` is a first-class state and the reason this table is three rows rather than two. The brief itself writes "? Resume" for Gemini CLI. A provider that does not know must say so: hiding implies a settled fact, and enabling would be pretending. Disabled-with-explanation is the only honest rendering of an open question, and it is the state that gets resolved by measurement rather than by guessing.
+
+**Capability vocabulary is closed.** A provider may not invent one, because a capability nothing gates is decoration and a capability the GUI does not know cannot gate anything.
+
+| Group | Capabilities |
+| :--- | :--- |
+| Transport | `streaming`, `resume`, `cancellation`, `partialMessages` |
+| Agency | `filesystem`, `toolCalling`, `permissionPrompts`, `engineDiscovery` |
+| Cognition | `thinking`, `vision` |
+| Deployment | `offline`, `localExecution` |
+
+**Quantities are not capabilities.** `contextWindow` is a number and lives in `properties`, not in the capability map. A boolean called `contextWindow` would be the same false-precision error ADR-009 removed.
+
+**Authentication method is not a capability either.** It is a separate declaration with its own vocabulary (§C), because "supports API keys" answers a different question from "supports streaming" and gating on it would produce nonsense.
+
+#### The Council capability
+
+`engineDiscovery` is the capability that decides whether a provider can host the Executive Intelligence System: *given a working directory, this provider discovers the operating instructions in it and obeys them.*
+
+**Council-capable requires `engineDiscovery` + `filesystem` + `toolCalling`.** Streaming is deliberately *not* required — the Council works without it, less pleasantly, and marking it required would be the architecture confusing polish with function.
+
+A provider that is not Council-capable may still be connected, health-checked, and inspected. It may **not** be selected as Active Brain, and the AI Control Center states the specific missing capability rather than the conclusion. "Ollama cannot be your Active Brain" is not an explanation; "Ollama has no filesystem access or instruction-file discovery, which the Executive Council needs to read your Business Memory and write Decision Records" is.
+
+### §C — Authentication Framework
+
+Priority is fixed, and a provider selects from it rather than inventing:
+
+`browser` → `providerNative` (the provider's own CLI login) → `osCredentialStore` → `apiKey`
+
+| Rule | Consequence |
+| :--- | :--- |
+| Authentication executes **only** in the Electron main process | No credential type appears in `shared/host.ts`, so none can cross the preload |
+| The renderer receives `AuthStatus` — a state, a method name, an optional expiry, an optional account label | It cannot receive, request, or infer a secret |
+| Secrets at rest use `safeStorage` (OS keychain / DPAPI / libsecret) | No bespoke crypto, no plaintext file, per Part F |
+| A provider that owns its own login is **reused, never wrapped** | Claude Code and Gemini CLI authenticate themselves; D.W.I.G.I detects the state and never handles the token |
+| `apiKey` is permitted only where a manifest declares no other method is genuinely available | Recorded in the manifest as a fact about the provider, not a convenience |
+
+**Never invent an unsupported authentication method.** A manifest declaring `browser` for a provider without an OAuth flow would produce a button that cannot work, which is the same class of lie as a faked capability.
+
+### §D — Workspace Ownership
+
+A workspace is a directory D.W.I.G.I initializes and owns the *shape* of. The user-facing noun is **Workspace**; "repository" leaves the vocabulary entirely.
+
+Ownership splits three ways, and the split is the whole of this section:
+
+| Owner | Contents | Written by |
+| :--- | :--- | :--- |
+| **The engine** | `CLAUDE.md`, `core/`, `.claude/` | Initialized at creation; thereafter the advisor's, per `CLAUDE.md` §11 |
+| **The advisor** | `core/business_memory.md`, `journal/`, `dossier/` | The advisor only. The cockpit's read layer still imports no mutating call |
+| **The cockpit** | `.dwigi/workspace.json` | The cockpit only. The advisor has no reason to read it and no rule requiring it to |
+
+`.dwigi/workspace.json` holds workspace metadata and **nothing else**: name, created version, schema version, last opened, preferred runtime, preferred executives, preferred theme, recent session ids. It never holds Business Memory, journal content, credentials, conversation history, reasoning, or executive output. Two independent reasons: those things have owners already, and a manifest that accumulated them would become a second source of truth for facts the engine is authoritative on.
+
+**Workspace creation is the mechanism that makes `engineDiscovery` provider-neutral**, and this is the part worth reading twice. The kernel is single-sourced at `CLAUDE.md`. Creation additionally writes one **pointer file per provider convention** — each a few lines that delegate to the kernel and add no rules of their own. A CLI provider whose convention file is `GEMINI.md` then discovers the engine natively, reading the same kernel Claude Code reads.
+
+The consequence is that `engineDiscovery` is not a Claude-shaped capability. It is satisfied by any provider that (a) reads a convention file from the working directory and (b) can follow a pointer, and a new such provider is added by naming its convention filename in its manifest — no architectural change, which is the test the brief sets.
+
+**Schema migration is forward-only and automatic.** An older manifest is migrated on open; an unknown *newer* schema version is refused rather than guessed at, because a newer D.W.I.G.I may have written fields this build would silently drop on the next write.
+
+### §E — Runtime Isolation
+
+| Boundary | Rule |
+| :--- | :--- |
+| One active session | The Active Brain owns the session. Concurrent brains are explicitly out of scope for v1.2 |
+| Providers are mutually invisible | No provider imports another; none reads another's credentials, config, or health |
+| No provider touches the workspace | Workspace reads and writes belong to `electron/repo/` and `electron/workspace/`. A provider receives a working directory as a spawn/request parameter and nothing more |
+| Process death is contained | A crashed provider degrades to `unhealthy` with a stated reason. It never takes down the host, and never leaves a permission request unresolved — `AdvisorTransport` invariant 6 is inherited verbatim |
+| Switching brains ends the outgoing session | Sessions do not migrate. A session handle is provider-specific and meaningless to another provider, so resume is scoped to the provider that minted it |
+
+### §F — Security Boundaries
+
+Six rules, each with the failure it prevents:
+
+1. **No secret crosses IPC.** Prevents a compromised or buggy renderer reading credentials it has no use for.
+2. **No secret is logged, and diagnostics redact by default.** Redaction is deny-by-default over a known-sensitive key set plus value-shape patterns, not an allowlist of things to hide — the failure mode of an allowlist is the field nobody remembered.
+3. **Every provider is untrusted until authenticated.** A detected provider is not a connected one.
+4. **Connection requires explicit consent.** Discovery never authenticates; it only reports what exists.
+5. **The deep-link protocol is a navigation layer only.** It carries a route and validated parameters. It never carries a path, a command, a credential, or a payload forwarded to a runtime. Unknown routes are rejected, not best-guessed.
+6. **`safeStorage` or nothing.** If OS secure storage is unavailable, credential-requiring providers report unavailable with the reason. A fallback to a plaintext file would be the exact concession Part F forbids.
+
+---
+
+### Amendment to ADR-001
+
+ADR-001 chose native Claude Code execution over "Custom Python application using Anthropic API," and its reconsideration condition — non-technical stakeholders requiring mobile web access — has **not** been met. v1.2 nonetheless adds providers reached over HTTP, which touches the rejected option. Recorded as an amendment rather than absorbed silently, per the standard this ledger holds itself to.
+
+**What survives:** every reason ADR-001 gave. Zero infrastructure, no orchestration daemon, local files, privacy by design, and the engine discovered from the workspace rather than assembled by an application. Those hold for Claude Code and Gemini CLI, which remain the Council-capable runtimes.
+
+**What changes:** ADR-001 assumed one runtime and treated "API orchestration" as an alternative *architecture*. It is now a **provider class** — additional, gated, and incapable of hosting the Council in this release. The distinction is that D.W.I.G.I still does not orchestrate reasoning over an API; it offers a chat surface over one and says plainly that the board is not in the room.
+
+**What is genuinely conceded:** ADR-001's "zero additional API cost" no longer holds universally. A founder selecting OpenAI pays per token on their own key. This is disclosed at connection, not discovered on a bill.
+
+### Consistency audit
+
+The brief requires internal consistency before implementation. The pairs that could contradict, checked explicitly:
+
+| Pair | Resolution |
+| :--- | :--- |
+| §B "never fake a capability" vs the goal "future local models behave exactly like cloud providers from the Council's perspective" | Behave *identically through the contract*, not *identically in capability*. A local model that cannot host the Council is not made to look as though it can |
+| §B `engineDiscovery` vs §D pointer files | §D is what makes §B's capability satisfiable by more than one provider. Without §D, `engineDiscovery` would be a Claude-only flag and the abstraction would be theatre |
+| §C `providerNative` vs §F "untrusted until authenticated" | Reusing a provider's own login is not trusting the provider. D.W.I.G.I reads the resulting state and independently health-checks; it never accepts a self-reported claim of being authenticated as proof of reachability |
+| §D "cockpit owns `.dwigi/`" vs `gui/README.md` boundary 2, "never writes to the repository" | Boundary 2 named `core/`, `journal/`, and `dossier/` — the advisor's files. `.dwigi/` is the cockpit's own, is written only by the cockpit, and is read by nothing in the engine. The boundary is narrowed to name the three advisor-owned paths explicitly rather than "the repository" |
+| §E "one active session" vs Part E "nothing switches automatically" | Compatible: the user selects, and selection ends the outgoing session deliberately and visibly. Nothing is automatic |
+| ADR-003 single interface vs multiple providers | Untouched. ADR-003 governs how many *voices* the founder hears, which is one. It says nothing about which engine produces it |
+| ADR-006 no agent frameworks vs a provider SDK | Untouched. The SDK is an interface plus a data registry, with no orchestration layer, no dependency graph, and no third-party framework |
+
+### Trade-offs accepted
+
+- **Three of five providers cannot host the Council in v1.2.** OpenAI, Ollama, and LM Studio are chat-capable only. This is stated at every point of selection. It is the honest consequence of Part I's own rule, and pretending otherwise was the alternative.
+- **The kernel filename remains `CLAUDE.md`.** Functionally neutralised by §D's pointer files; cosmetically it is still a Claude-shaped artifact at the centre of a provider-neutral platform. Renaming it to `DWIGI.md` with `CLAUDE.md` demoted to a pointer is the correct end-state, touches ~19 cross-references and a propose-only file, and is recorded as debt rather than done under a frozen architecture.
+- **Capability declarations are author-asserted.** A manifest claiming `resume: supported` is a claim until a live session proves it. Mitigated by `unknown` being available and by health checks, not eliminated.
+
+### Reconsideration conditions
+
+- **A Council Host (Option C) is wanted.** Requires its own ADR and its own boundary. It must not be introduced inside a provider.
+- **Concurrent brains are wanted.** §E's single-session rule is the constraint to revisit first.
+- **A provider needs an event kind the `AdvisorEvent` union lacks.** Change the contract deliberately; do not extend it provider-locally.

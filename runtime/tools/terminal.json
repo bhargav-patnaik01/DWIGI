@@ -1,0 +1,52 @@
+{
+  "name": "terminal",
+  "version": "1.0.0",
+  "category": "terminal",
+  "description": "Execute one shell command inside the workspace. The most powerful and least constrained tool in this set — it can read, write, install, delete, or reach the network — and is scoped by policy and confirmation rather than by a narrow schema the way the read-only tools are.",
+  "read_only": false,
+  "requires_confirmation": true,
+  "risk_level": "high",
+  "input_schema": {
+    "type": "object",
+    "required": ["command", "description"],
+    "properties": {
+      "command": {
+        "type": "string",
+        "description": "The literal command line to execute. Never assembled by concatenating untrusted or user-supplied text into a larger string — see `safety_notes`."
+      },
+      "description": {
+        "type": "string",
+        "description": "One plain-language sentence describing what this command does, shown to the human approving it. Required, because 'run this command' with no description is not something a person can meaningfully consent to."
+      },
+      "cwd": {
+        "type": "string",
+        "default": ".",
+        "description": "Working directory the command runs from, relative to the workspace root. Must resolve inside the workspace root."
+      },
+      "timeout_ms": {
+        "type": "integer",
+        "default": 120000,
+        "maximum": 600000,
+        "description": "Hard ceiling on execution time. A command that has not finished when this elapses is terminated and `timed_out` is reported true — a runtime with no timeout can hang a whole session on one stuck process."
+      }
+    },
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["exit_code", "stdout", "stderr", "timed_out"],
+    "properties": {
+      "exit_code": { "type": ["integer", "null"], "description": "Process exit code. Null if the process was terminated before exiting on its own — see `timed_out`." },
+      "stdout": { "type": "string", "description": "Captured standard output. May be truncated for an unusually long-running or noisy command; a truncated capture is marked, never silently cut." },
+      "stderr": { "type": "string", "description": "Captured standard error, kept separate from `stdout` so a caller can tell diagnostic noise from the command's actual output." },
+      "timed_out": { "type": "boolean", "description": "True if `timeout_ms` was reached and the process was terminated rather than finishing on its own." }
+    },
+    "additionalProperties": false
+  },
+  "errors": [
+    { "code": "confirmation_denied", "description": "The human declined to run this command. Reported as a first-class outcome, never retried automatically and never silently reattempted under a different description." },
+    { "code": "outside_workspace", "description": "`cwd` resolves outside the workspace root and was refused before the command was ever spawned." },
+    { "code": "spawn_failed", "description": "The command could not be started at all — e.g. the interpreter or binary named does not exist on this machine." }
+  ],
+  "safety_notes": "This is the one tool in this set that can mutate anything, so it carries obligations the read-only four do not: `requires_confirmation` is always true and may never be bypassed by a caller regardless of how routine the command appears; `command` must be built only from literal, known-safe segments — never by interpolating text a human did not explicitly write, since that is the direct path to command injection; every invocation must carry a real `timeout_ms` rather than relying on the default silently; and a destructive or hard-to-reverse command (deleting files, force-pushing, resetting state) should be named as such in `description` so the approval it requests is an informed one, not a formality. When a read-only tool in this set (`read_file`, `list_directory`, `search_workspace`, `git_status`) can answer the same question, it should be preferred over `terminal` — see `skills/reasoning.md`."
+}

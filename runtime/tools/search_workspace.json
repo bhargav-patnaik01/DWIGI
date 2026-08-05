@@ -1,0 +1,68 @@
+{
+  "name": "search_workspace",
+  "version": "1.0.0",
+  "category": "workspace",
+  "description": "Search file contents across the workspace by pattern. The tool for finding where something is defined, referenced, or mentioned without reading every candidate file by hand.",
+  "read_only": true,
+  "requires_confirmation": false,
+  "risk_level": "low",
+  "timeout_ms": 15000,
+  "input_schema": {
+    "type": "object",
+    "required": ["pattern"],
+    "properties": {
+      "pattern": {
+        "type": "string",
+        "description": "Regular expression to search for, matched against file content."
+      },
+      "path": {
+        "type": "string",
+        "default": ".",
+        "description": "Directory to scope the search to, relative to the workspace root. Defaults to the whole workspace."
+      },
+      "glob": {
+        "type": "string",
+        "description": "Optional filename filter, e.g. \"*.ts\" or \"**/*.md\". Narrows which files are searched before the pattern is applied."
+      },
+      "case_sensitive": {
+        "type": "boolean",
+        "default": true
+      },
+      "max_results": {
+        "type": "integer",
+        "default": 200,
+        "minimum": 1,
+        "description": "Upper bound on matches returned. A search that would exceed this is truncated and `truncated` is set."
+      }
+    },
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["matches", "truncated"],
+    "properties": {
+      "matches": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["file", "line", "text"],
+          "properties": {
+            "file": { "type": "string", "description": "Workspace-relative path of the matching file." },
+            "line": { "type": "integer", "description": "1-indexed line number of the match." },
+            "text": { "type": "string", "description": "The matching line's content, for context. Not the whole file." }
+          },
+          "additionalProperties": false
+        }
+      },
+      "truncated": { "type": "boolean", "description": "True if `max_results` cut the match list short of every occurrence in the workspace." },
+      "files_searched": { "type": "integer", "description": "Number of files the search actually scanned, for judging how broad the sweep was." }
+    },
+    "additionalProperties": false
+  },
+  "errors": [
+    { "code": "invalid_pattern", "description": "`pattern` is not a valid regular expression." },
+    { "code": "path_not_found", "description": "The `path` scope does not exist in the workspace." },
+    { "code": "outside_workspace", "description": "`path` resolves outside the workspace root and was refused before any search was attempted." }
+  ],
+  "safety_notes": "Read-only, and bounded by construction: `max_results` and `files_searched` exist so a caller never has to guess whether a search was exhaustive or quietly partial. Binary files are skipped rather than scanned byte-for-byte against a text pattern, and skipped files are not counted as searched. A search returning zero matches is a real, reportable result — 'not found by this search' — and must not be presented as 'does not exist anywhere in the workspace,' which is a stronger claim this tool cannot support on its own."
+}

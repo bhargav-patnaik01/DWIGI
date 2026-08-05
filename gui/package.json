@@ -1,6 +1,7 @@
 {
   "name": "eis-cockpit",
-  "version": "1.0.1",
+  "//version": "The single source of truth for the version a founder sees. app.getVersion() reads it, which feeds the About panel, Diagnostics, and the Windows executable's version resource. It was still 1.0.1 after two feature phases, so every one of those surfaces was reporting a build that no longer existed.",
+  "version": "1.3.0",
   "private": true,
   "license": "MIT",
   "description": "D.W.I.G.I — local-first desktop cockpit for the Executive Intelligence System. Presentation layer only — performs no reasoning.",
@@ -64,7 +65,10 @@
     "name": "Bhargav Patnaik"
   },
   "//build": "Comment keys must NOT go inside the build object below. npm ignores unknown top-level keys, which is why //dependencies works, but electron-builder validates its build field against a strict schema and aborts on any property it does not recognise. Notes about build settings belong here instead.",
-  "//build.extraResources": "main.ts resolveWindowIcon() looks for icon.png beside the app resources. Windows takes its window icon from the stamped executable and macOS from the .icns, but a packaged Linux build had neither and fell back to Electron's default icon. This is the file that lookup expects.",
+  "//build.extraResources": "TWO entries, for two unrelated reasons. (1) icon.png: main.ts resolveWindowIcon() looks for it beside the app resources. Windows takes its window icon from the stamped executable and macOS from the .icns, but a packaged Linux build had neither and fell back to Electron's default icon. (2) engine/: workspace creation copies the executive board into the folder a founder chooses, and a packaged app has no repository to copy from — so the engine travels inside the installer. The filter list is explicit rather than a wildcard because the development tree also contains core/business_memory.md, which holds a real company's cash position and must never ship. electron/workspace/index.ts applies the same denylist a second time; the leak is invisible if either one fails alone.",
+  "//build.nsisIcons": "No installerIcon/uninstallerIcon/installerHeaderIcon is set in build.nsis, deliberately. scripts/prepare-icon.mjs assembles build/icon.ico on a best effort and resolves FALSE on failure, because a fresh clone may have no source image — electron-builder then falls back to build/icon.png on its own. Hardcoding the .ico path would convert that documented graceful degradation into a hard packaging failure on exactly the machines least able to diagnose it.",
+  "//build.signing": "WHERE A CERTIFICATE PLUGS IN, when one is bought. electron-builder reads CSC_LINK (a path or base64 .pfx) and CSC_KEY_PASSWORD from the environment and needs NO configuration change here — that is the whole integration, and it is why no certificate path is hardcoded below. For an EV certificate on a hardware token, add win.signingHashAlgorithms and win.certificateSubjectName instead. Until then win.signAndEditExecutable stays TRUE: that flag also controls version-resource stamping, and turning it off to silence the unsigned warning would ALSO strip the product name, version, and copyright from the executable — which is how a build ends up reporting itself as Electron by GitHub, Inc.",
+  "//build.uninstall": "nsis.deleteAppDataOnUninstall is explicitly false. The userData directory holds conversation transcripts and the OS-encrypted credential store, so deleting it on uninstall would destroy a founder's record of how they decided — including for someone merely reinstalling. Their workspace is a folder they chose and is never touched by the uninstaller at all.",
   "build": {
     "appId": "com.dwigi.app",
     "productName": "D.W.I.G.I",
@@ -74,12 +78,23 @@
       "package.json"
     ],
     "extraMetadata": {
-      "main": "dist-electron/electron/main.js"
+      "main": "dist-electron/electron/main.js",
+      "description": "An AI executive council for founders who decide alone."
     },
     "extraResources": [
       {
         "from": "build/icon.png",
         "to": "icon.png"
+      },
+      {
+        "from": "..",
+        "to": "engine",
+        "filter": [
+          "CLAUDE.md",
+          "core/**/*.md",
+          "!core/business_memory.md",
+          ".claude/commands/*.md"
+        ]
       }
     ],
     "directories": {
@@ -93,8 +108,17 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
         }
-      ]
+      ],
+      "publisherName": "Bhargav Patnaik",
+      "artifactName": "DWIGI-Setup-${version}-${arch}.${ext}",
+      "signAndEditExecutable": true
     },
     "mac": {
       "target": [
@@ -108,12 +132,34 @@
         "AppImage"
       ],
       "icon": "build/icon.png",
-      "category": "Office"
+      "category": "Office",
+      "maintainer": "Bhargav Patnaik",
+      "synopsis": "An AI executive council for founders who decide alone.",
+      "desktop": {
+        "entry": {
+          "Name": "D.W.I.G.I",
+          "Comment": "An AI executive council for founders who decide alone.",
+          "StartupWMClass": "D.W.I.G.I"
+        }
+      }
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "perMachine": false
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "D.W.I.G.I",
+      "uninstallDisplayName": "D.W.I.G.I ${version}",
+      "menuCategory": false,
+      "runAfterFinish": true,
+      "allowElevation": false,
+      "deleteAppDataOnUninstall": false
+    },
+    "copyright": "Copyright © 2026 Bhargav Patnaik. MIT licensed.",
+    "asar": true,
+    "portable": {
+      "artifactName": "DWIGI-Portable-${version}-${arch}.${ext}"
     },
     "publish": null
   }

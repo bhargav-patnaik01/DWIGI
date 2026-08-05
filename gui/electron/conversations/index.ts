@@ -47,6 +47,7 @@ import {
   deriveTitle,
   isConversationId,
   NEW_CONVERSATION_TITLE,
+  readArchived,
   readConversationMode,
   TITLE_MAX_LENGTH,
   type NewConversationMode,
@@ -98,6 +99,9 @@ function readSummary(value: unknown): ConversationSummary | null {
     // records were Council conversations. Defaulted rather than rejected, so the
     // feature does not cost anyone their history.
     mode: readConversationMode(value.mode),
+    // Absent on every record written before archiving existed. Defaults to
+    // unarchived, per `readArchived`.
+    archived: readArchived(value.archived),
   };
 }
 
@@ -319,6 +323,8 @@ export class ConversationStore {
         updatedAt: now,
         messageCount: 0,
         mode: readConversationMode(options.mode),
+        // A conversation is never born archived.
+        archived: false,
       };
       await this.writeIndex([summary, ...(await this.readIndex())]);
       return { ok: true, value: summary };
@@ -413,6 +419,30 @@ export class ConversationStore {
     const clean = title.replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX_LENGTH);
     if (!clean) return { ok: false, reason: 'A title cannot be empty.' };
     return this.serialise(() => this.patch(id, (entry) => ({ ...entry, title: clean })));
+  }
+
+  /**
+   * Reset an executive's or the Council's runtime context.
+   *
+   * ---------------------------------------------------------------------------
+   * A RESET, NOT A DELETION
+   * ---------------------------------------------------------------------------
+   * Sets `archived: true` and stops here. The transcript file is untouched, the
+   * conversation still opens from history, and nothing about the founder's
+   * record of what was said is destroyed — only its standing as "the current
+   * session for this executive" (`shared/conversations.ts`, `archived`).
+   *
+   * `updatedAt` is deliberately left alone, mirroring `rename`: archiving is an
+   * administrative fact about the conversation, not activity in it, and bumping
+   * it would move a session the founder just reset to the top of a list ordered
+   * by when things were last discussed.
+   *
+   * Idempotent: archiving an already-archived conversation succeeds and changes
+   * nothing, because a double-click on Reset must not be a fault.
+   */
+  async archive(id: string): Promise<ConversationResult<ConversationSummary>> {
+    if (!isConversationId(id)) return { ok: false, reason: 'Malformed conversation id.' };
+    return this.serialise(() => this.patch(id, (entry) => ({ ...entry, archived: true })));
   }
 
   /**

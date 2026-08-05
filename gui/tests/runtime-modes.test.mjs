@@ -219,16 +219,87 @@ test('the cockpit sends no prompt text of its own', () => {
   }
 });
 
-test('the onboarding component asks the founder nothing', () => {
-  // The welcome screen explains and invites. The moment it contains an input, it
-  // has become a form, and a form here is a second onboarding schema.
-  const welcome = readFileSync(
-    path.join(GUI, 'src', 'components', 'onboarding', 'Welcome.tsx'),
+test('the onboarding flow asks the founder nothing about their business', () => {
+  /*
+   * ---------------------------------------------------------------------------
+   * THIS TEST WAS REWRITTEN IN PHASE 2, AND THE REASON MATTERS
+   * ---------------------------------------------------------------------------
+   * It used to forbid `<input>` outright in `Welcome.tsx`, which was a good proxy
+   * while that screen only explained and invited. `FirstRun.tsx` replaced it and
+   * legitimately needs two controls: an API key field and the council checkboxes.
+   *
+   * Loosening the assertion to allow inputs would have thrown the invariant away.
+   * So it is stated directly instead, and is now *stronger* than the proxy it
+   * replaces: the flow may collect credentials and configuration, and may not ask
+   * a single question about the company.
+   *
+   * That boundary is the whole reason there is no second onboarding schema. Every
+   * business question lives in `core/onboarding/memory_protocol.md`, and a copy
+   * here would drift from the one the advisor actually uses — with the founder
+   * answering the copy that is wrong.
+   */
+  const flow = readFileSync(
+    path.join(GUI, 'src', 'components', 'onboarding', 'FirstRun.tsx'),
     'utf8'
   );
 
-  for (const element of ['<input', '<textarea', '<select', '<form']) {
-    assert.ok(!welcome.includes(element), `the welcome screen must contain no ${element}`);
+  // Free-text entry is the mechanism a business question would need. Only two are
+  // permitted, and both are named so a third cannot appear unnoticed.
+  const inputs = [...flow.matchAll(/<input[\s\S]*?\/>/g)].map((match) => match[0]);
+  for (const input of inputs) {
+    const permitted =
+      input.includes('type="password"') || // the API key field
+      input.includes('type="checkbox"'); // council toggles
+    assert.ok(
+      permitted,
+      `first run contains an input that is neither a credential nor a toggle:\n${input}`
+    );
+  }
+
+  assert.ok(!flow.includes('<textarea'), 'first run must contain no free-text area');
+  assert.ok(!flow.includes('<form'), 'first run must contain no form');
+
+  const lower = flow.toLowerCase();
+
+  /*
+   * Two checks, because one blunt substring list gets this wrong in both
+   * directions.
+   *
+   * A bare scan for "revenue" fails on the sentence naming the executive lenses —
+   * "strategy, capital, execution, revenue, product, risk" — which is a
+   * description of the board, not a question about the company. So the
+   * interrogative phrases are matched whole, and the financial *field* names are
+   * checked only where a question would actually have to put them: in a label or
+   * a placeholder attached to an input.
+   */
+  const interrogatives = [
+    'what stage',
+    'customers do you',
+    'how much runway',
+    'what is your revenue',
+    'monthly burn',
+    'cash position',
+    'business model',
+    'north star',
+  ];
+  for (const phrase of interrogatives) {
+    assert.ok(
+      !lower.includes(phrase),
+      `first run asks about "${phrase}" — that belongs to the engine's onboarding, not here`
+    );
+  }
+
+  const prompts = [
+    ...flow.matchAll(/(?:placeholder|aria-label|label)=\{?["'`]([^"'`]+)["'`]/g),
+  ].map((match) => match[1].toLowerCase());
+  const financialFields = ['runway', 'revenue', 'burn', 'valuation', 'cash'];
+  for (const prompt of prompts) {
+    for (const field of financialFields) {
+      assert.ok(
+        !prompt.includes(field),
+        `first run prompts for "${field}" — the four financial fields are never asked for here`
+      );
+    }
   }
 });
 

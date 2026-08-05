@@ -70,6 +70,12 @@ interface ConversationsState {
    * ordered by when things were last discussed.
    */
   rename(id: string, title: string): Promise<void>;
+  /**
+   * Reset: stop offering this conversation as the current session for its
+   * executive or Council slot. The transcript is untouched and stays reachable
+   * from conversation history — see `ConversationStore.archive`.
+   */
+  archive(id: string): Promise<void>;
   /** Record the engine session handle. Idempotent. */
   bindSession(sessionId: string): Promise<void>;
   /**
@@ -341,6 +347,32 @@ export const useConversations = create<ConversationsState>()((set, get) => ({
       error: null,
       summaries: state.summaries.map((entry) => (entry.id === id ? result.value : entry)),
     }));
+  },
+
+  archive: async (id) => {
+    if (!hasHost()) return;
+    // Mirrors `remove`'s guard: resetting the conversation a turn is actively
+    // streaming into would archive it out from under itself. Any *other*
+    // conversation may be reset freely — it is not the one anything is writing to.
+    if (get().activeId === id && turnInFlight()) {
+      set({ error: TURN_IN_FLIGHT });
+      return;
+    }
+
+    const result = await window.eis!.conversations.archive(id);
+    if (!result.ok) {
+      set({ error: result.reason });
+      return;
+    }
+
+    set((state) => ({
+      error: null,
+      summaries: state.summaries.map((entry) => (entry.id === id ? result.value : entry)),
+    }));
+    // Archiving does not touch the transcript on screen. A founder who reset the
+    // conversation they are currently reading keeps reading it; the reset takes
+    // effect the next time this executive is opened from the Executive Board,
+    // which is when "the current session" is next resolved.
   },
 
   bindSession: async (sessionId) => {
